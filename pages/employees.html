@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='16'%20fill='%230e8c74'/%3E%3Ctext%20x='32'%20y='46'%20font-size='38'%20font-family='Arial'%20font-weight='700'%20fill='white'%20text-anchor='middle'%3EL%3C/text%3E%3C/svg%3E">
+<title>Employees · LetMeHire</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<div class="shell" id="shell"></div>
+
+<script src="../js/storage.js"></script>
+<script src="../js/ui.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/employees.js"></script>
+<script src="../js/attendance.js"></script>
+<script src="../js/leave.js"></script>
+<script src="../js/helper.js"></script>
+<script>
+(function () {
+  const user = Auth.requireRole('admin');
+  if (!user) return;
+
+  const page = UI.shell({
+    active: 'employees.html',
+    title: 'Employees',
+    subtitle: 'Add, edit, delete, search and filter',
+    nav: [
+      { href: 'admin.html', label: 'Dashboard', icon: '&#9638;' },
+      { href: 'employees.html', label: 'Employees', icon: '&#9823;' },
+      { href: 'leaves.html', label: 'Leave requests', icon: '&#9998;' },
+      { href: 'payslip.html', label: 'Payslips', icon: '&#164;' },
+      { href: 'settings.html', label: 'Settings', icon: '&#9881;' }
+    ]
+  });
+
+  const criteria = { q: '', department: '' };
+
+  page.innerHTML =
+    '<div class="page-hd">' +
+    '  <div><h2>Employees</h2><p>Adding an employee also creates their login. Rule: search by name or email, filter by department.</p></div>' +
+    '  <button class="btn btn-primary" id="addBtn" type="button">+ Add employee</button>' +
+    '</div>' +
+
+    '<div class="card mb-2">' +
+    '  <div class="card-bd">' +
+    '    <div class="row">' +
+    '      <div class="grow" style="flex:2 1 260px">' +
+    '        <label class="lbl" for="q">Search</label>' +
+    '        <input class="input" id="q" placeholder="Name or email">' +
+    '      </div>' +
+    '      <div class="grow" style="flex:1 1 200px">' +
+    '        <label class="lbl" for="dept">Department</label>' +
+    '        <select class="select" id="dept"><option value="">All departments</option></select>' +
+    '      </div>' +
+    '      <div style="flex:0 0 auto"><button class="btn btn-outline" id="clearBtn" type="button" style="margin-top:1.55rem">Clear</button></div>' +
+    '    </div>' +
+    '  </div>' +
+    '</div>' +
+
+    '<div class="card" id="listCard"></div>';
+
+  const listCard = document.getElementById('listCard');
+  const deptSelect = document.getElementById('dept');
+
+  function fillDepartments() {
+    const current = criteria.department;
+    deptSelect.innerHTML = '<option value="">All departments</option>' +
+      Employees.departments().map(d => '<option value="' + UI.esc(d) + '"' + (d === current ? ' selected' : '') + '>' + UI.esc(d) + '</option>').join('');
+  }
+
+  function render() {
+    fillDepartments();
+    const all = employees();
+    const rows = Employees.filter(all, criteria);
+
+    if (!all.length) {
+      listCard.innerHTML = UI.empty('&#9823;', 'No employees have been registered yet',
+        'The app starts empty. Add your first employee to create their login and start recording attendance.',
+        '<button class="btn btn-primary" type="button" id="emptyAdd">Add employee</button>');
+      const b = document.getElementById('emptyAdd');
+      if (b) b.onclick = openForm;
+      return;
+    }
+
+    if (!rows.length) {
+      listCard.innerHTML = UI.empty('&#128269;', 'No employees match these filters',
+        'Try a different search term or clear the department filter.',
+        '<button class="btn btn-outline" type="button" id="emptyClear">Clear filters</button>');
+      document.getElementById('emptyClear').onclick = clearFilters;
+      return;
+    }
+
+    listCard.innerHTML =
+      '<div class="card-hd"><span>' + rows.length + ' of ' + all.length + ' employee' + (all.length === 1 ? '' : 's') + '</span></div>' +
+      '<div class="tbl-wrap"><table class="tbl">' +
+      '<thead><tr><th>Employee</th><th>Department</th><th>Salary</th><th>Leave left</th><th class="right">Actions</th></tr></thead><tbody>' +
+      rows.map(u => {
+        const b = Leave.balance(u.id);
+        return '<tr>' +
+          '<td><div class="flex"><span class="av">' + UI.esc(UI.initials(u.name)) + '</span>' +
+          '<span class="grow"><span class="bold txt" style="display:block">' + UI.esc(u.name) + '</span>' +
+          '<span class="smaller muted txt" style="display:block">' + UI.esc(u.email) + '</span></span></div></td>' +
+          '<td><span class="badge badge-mute">' + UI.esc(u.department || '—') + '</span></td>' +
+          '<td class="nowrap">' + UI.fmtMoney(u.salary) + '<span class="smaller muted"> /mo</span></td>' +
+          '<td class="nowrap">' + b.left + ' of ' + b.quota + '</td>' +
+          '<td class="right nowrap">' +
+            '<button class="btn btn-sm btn-outline" type="button" data-edit="' + u.id + '">Edit</button> ' +
+            '<button class="btn btn-sm btn-danger" type="button" data-del="' + u.id + '">Delete</button>' +
+          '</td></tr>';
+      }).join('') +
+      '</tbody></table></div>';
+
+    listCard.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => openForm(Number(b.getAttribute('data-edit'))));
+    listCard.querySelectorAll('[data-del]').forEach(b => b.onclick = () => removeEmployee(Number(b.getAttribute('data-del'))));
+  }
+
+  function clearFilters() {
+    criteria.q = '';
+    criteria.department = '';
+    document.getElementById('q').value = '';
+    render();
+  }
+
+  document.getElementById('q').addEventListener('input', e => { criteria.q = e.target.value; render(); });
+  deptSelect.addEventListener('change', e => { criteria.department = e.target.value; render(); });
+  document.getElementById('clearBtn').onclick = clearFilters;
+
+  /* ---------------- Add / edit form ---------------- */
+  let modal = null;
+
+  function openForm(editId) {
+    const existing = editId ? findUser(editId) : null;
+    const depts = Employees.departments();
+    const prefillDept = existing ? existing.department : (depts[0] || '');
+
+    closeModal();
+    modal = document.createElement('div');
+    modal.className = 'modal-back on';
+    modal.innerHTML =
+      '<div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="formTitle">' +
+      '  <div class="modal-hd"><span id="formTitle">' + (existing ? 'Edit employee' : 'Add employee') + '</span>' +
+      '    <button type="button" data-x aria-label="Close">&times;</button></div>' +
+      '  <form id="empForm" novalidate>' +
+      '    <div class="modal-bd">' +
+      '      <div class="field">' +
+      '        <label class="lbl" for="fName">Full name <span class="req">*</span></label>' +
+      '        <input class="input" id="fName" value="' + UI.esc(existing ? existing.name : '') + '">' +
+      '        <div class="err"></div>' +
+      '      </div>' +
+      '      <div class="field">' +
+      '        <label class="lbl" for="fEmail">Email <span class="req">*</span></label>' +
+      '        <input class="input" type="email" id="fEmail" value="' + UI.esc(existing ? existing.email : '') + '">' +
+      '        <div class="err"></div>' +
+      '      </div>' +
+      '      <div class="field">' +
+      '        <label class="lbl" for="fPass">' + (existing ? 'New password (optional)' : 'Password <span class="req">*</span>') + '</label>' +
+      '        <input class="input" type="password" id="fPass" autocomplete="new-password"' + (existing ? ' placeholder="Leave blank to keep current"' : ' placeholder="At least 6 characters"') + '>' +
+      '        <div class="err"></div>' +
+      (existing ? '<div class="hint">Creating an employee also creates their login. Passwords can be reset here.</div>' : '<div class="hint">This becomes the employee&rsquo;s login.</div>') +
+      '      </div>' +
+      '      <div class="field">' +
+      '        <label class="lbl" for="fDept">Department <span class="req">*</span></label>' +
+      '        <input class="input" id="fDept" list="deptList" value="' + UI.esc(prefillDept) + '" placeholder="Engineering">' +
+      '        <datalist id="deptList">' + depts.map(d => '<option value="' + UI.esc(d) + '"></option>').join('') + '</datalist>' +
+      '        <div class="err"></div>' +
+      '      </div>' +
+      '      <div class="field">' +
+      '        <label class="lbl" for="fSalary">Monthly salary <span class="req">*</span></label>' +
+      '        <input class="input" type="number" min="1" step="1" id="fSalary" value="' + (existing ? UI.esc(existing.salary) : '') + '" placeholder="50000">' +
+      '        <div class="err"></div>' +
+      '      </div>' +
+      '    </div>' +
+      '    <div class="modal-ft">' +
+      '      <button class="btn btn-outline" type="button" data-x>Cancel</button>' +
+      '      <button class="btn btn-primary" type="submit">' + (existing ? 'Save changes' : 'Add employee') + '</button>' +
+      '    </div>' +
+      '  </form>' +
+      '</div>';
+    document.body.appendChild(modal);
+    modal.querySelectorAll('[data-x]').forEach(b => b.onclick = closeModal);
+    modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+
+    document.getElementById('empForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      UI.clearErrors(modal);
+
+      const data = {
+        name: document.getElementById('fName').value,
+        email: document.getElementById('fEmail').value,
+        password: document.getElementById('fPass').value,
+        department: document.getElementById('fDept').value,
+        salary: document.getElementById('fSalary').value
+      };
+
+      const res = existing ? Employees.update(existing.id, data) : Employees.create(data, user.id);
+
+      if (!res.ok) {
+        Object.keys(res.errors).forEach(k => {
+          const map = { fName: 'name', fEmail: 'email', fPass: 'password', fDept: 'department', fSalary: 'salary' };
+          Object.keys(map).forEach(id => { if (map[id] === k) UI.setError(id, res.errors[k]); });
+        });
+        const first = modal.querySelector('.field.invalid .input');
+        if (first) first.focus();
+        return;
+      }
+
+      closeModal();
+      render();
+      UI.toast(existing ? 'Employee updated' : res.user.name + ' added — login created');
+    });
+
+    document.getElementById('fName').focus();
+  }
+
+  function closeModal() { if (modal) { modal.remove(); modal = null; } }
+
+  function removeEmployee(id) {
+    const u = findUser(id);
+    if (!u) return;
+    UI.confirm({
+      title: 'Delete ' + u.name + '?',
+      message: 'This removes their login together with their attendance and leave records. It cannot be undone.',
+      confirm: 'Delete employee',
+      danger: true
+    }, function () {
+      const res = Employees.remove(id);
+      if (!res.ok) { UI.toast(res.error, 'bad'); return; }
+      render();
+      UI.toast(u.name + ' deleted' + (res.removedAttendance || res.removedLeaves ? ' with ' + (res.removedAttendance + res.removedLeaves) + ' linked record(s)' : ''));
+    });
+  }
+
+  document.getElementById('addBtn').onclick = () => openForm();
+
+  render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='16'%20fill='%230e8c74'/%3E%3Ctext%20x='32'%20y='46'%20font-size='38'%20font-family='Arial'%20font-weight='700'%20fill='white'%20text-anchor='middle'%3EL%3C/text%3E%3C/svg%3E">
+<title>My dashboard · LetMeHire</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<div class="shell" id="shell"></div>
+
+<script src="../js/storage.js"></script>
+<script src="../js/ui.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/employees.js"></script>
+<script src="../js/attendance.js"></script>
+<script src="../js/leave.js"></script>
+<script src="../js/helper.js"></script>
+<script src="../js/camera.js"></script>
+<script>
+(function () {
+  const user = Auth.requireRole('employee');
+  if (!user) return;
+
+  const page = UI.shell({
+    active: 'employee.html',
+    title: 'My dashboard',
+    subtitle: 'Check in, apply for leave and ask the helper',
+    nav: [
+      { href: 'employee.html', label: 'My dashboard', icon: '&#9638;' },
+      { href: 'payslip.html', label: 'My payslip', icon: '&#164;' }
+    ]
+  });
+
+  const company = getCompany();
+  const today = todayISO();
+  const workingToday = isWorkingDay(today, company);
+
+  function todayRecord() { return attendanceFor(user.id, today); }
+
+  /* What the camera recorded, shown under the time readout. */
+  function metaLine(rec) {
+    const m = rec && rec.meta;
+    if (!m || m.source !== 'camera') return '';
+    const bits = ['Camera check-in'];
+    if (m.face === 'detected') bits.push('face verified');
+    else if (m.face === 'unavailable') bits.push('face check unavailable');
+    if (m.geo) bits.push(m.geo);
+    if (m.meters != null) bits.push(m.meters + ' m from office');
+    return '<div class="flex wrap mt-2">' +
+      (m.photo ? '<img class="thumb" src="' + m.photo + '" alt="Check-in snapshot">' : '') +
+      '<span class="srcdot"><span class="pip"></span>' + UI.esc(bits.join(' · ')) + '</span></div>';
+  }
+
+  function methodCell(rec) {
+    const m = rec && rec.meta;
+    if (!m || m.source !== 'camera') return '<span class="smaller faint">manual</span>';
+    const face = m.face === 'detected' ? 'face ✓' : 'face —';
+    return (m.photo ? '<img class="thumb" src="' + m.photo + '" alt="" style="width:22px;height:22px;border-radius:6px;display:inline-block;vertical-align:middle;margin-right:.35rem">' : '') +
+      '<span class="smaller">camera<br><span class="faint">' + UI.esc(face) + '</span></span>';
+  }
+
+  /* ---------- check in / check out panel ---------- */
+  function checkPanel() {
+    const rec = todayRecord();
+    let statusBadge, action, extra = '';
+
+    if (!rec) {
+      statusBadge = workingToday
+        ? '<span class="badge badge-bad">no record yet</span>'
+        : '<span class="badge badge-mute">non-working day</span>';
+      action = '<button class="btn btn-primary" id="camInBtn" type="button">Camera check-in</button>' +
+               '<button class="btn btn-outline" id="inBtn" type="button">Quick check-in</button>';
+    } else if (!rec.checkOut) {
+      statusBadge = UI.statusBadge(rec.status);
+      action = '<button class="btn btn-primary" id="camOutBtn" type="button">Camera check-out</button>' +
+               '<button class="btn btn-outline" id="outBtn" type="button">Quick check-out</button>';
+      extra = metaLine(rec);
+    } else {
+      statusBadge = UI.statusBadge(rec.status);
+      action = '<span class="small muted">Done for today</span>';
+      extra = metaLine(rec);
+    }
+
+    return '<div class="card hover">' +
+      '<div class="card-hd"><span>Today &middot; ' + UI.esc(new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })) + '</span>' + statusBadge + '</div>' +
+      '<div class="card-bd">' +
+      '  <div class="between mb-2">' +
+      '    <div><div class="smaller muted">CHECK-IN</div><div class="bold" style="font-size:1.15rem">' + UI.esc(rec ? rec.checkIn : '—') + '</div></div>' +
+      '    <div><div class="smaller muted">CHECK-OUT</div><div class="bold" style="font-size:1.15rem">' + UI.esc(rec && rec.checkOut ? rec.checkOut : '—') + '</div></div>' +
+      '    <div><div class="smaller muted">OFFICE STARTS</div><div class="bold" style="font-size:1.15rem">' + UI.esc(company.startTime) + ' +' + company.graceMinutes + '</div></div>' +
+      '  </div>' +
+      '  <div class="flex wrap">' + action + '</div>' +
+      (extra || '<p class="small muted mt-1 mb-0">Half day applies under 5 hours worked.</p>') +
+      '</div></div>';
+  }
+
+  /* ---------- leave apply form ---------- */
+  function leaveForm() {
+    const b = Leave.balance(user.id);
+    return '<div class="card">' +
+      '<div class="card-hd"><span>Apply for leave</span><span class="smaller muted">' + b.left + ' of ' + b.quota + ' days left in ' + b.year + '</span></div>' +
+      '<div class="card-bd">' +
+      '  <div class="alert alert-error" id="lvAlert"></div>' +
+      '  <form id="lvForm" novalidate>' +
+      '    <div class="row">' +
+      '      <div class="grow"><div class="field">' +
+      '        <label class="lbl" for="lvType">Leave type <span class="req">*</span></label>' +
+      '        <select class="select" id="lvType"><option value="">Select type</option>' +
+                ['Casual', 'Sick', 'Annual', 'Unpaid'].map(t => '<option>' + t + '</option>').join('') +
+      '        </select><div class="err"></div></div></div>' +
+      '      <div class="grow"><div class="field">' +
+      '        <label class="lbl" for="lvFrom">From <span class="req">*</span></label>' +
+      '        <input class="input" type="date" id="lvFrom"><div class="err"></div></div></div>' +
+      '      <div class="grow"><div class="field">' +
+      '        <label class="lbl" for="lvTo">To <span class="req">*</span></label>' +
+      '        <input class="input" type="date" id="lvTo"><div class="err"></div></div></div>' +
+      '    </div>' +
+      '    <div class="field">' +
+      '      <label class="lbl" for="lvReason">Reason <span class="req">*</span></label>' +
+      '      <textarea class="input" id="lvReason" rows="2" placeholder="Family event"></textarea>' +
+      '      <div class="err"></div>' +
+      '    </div>' +
+      '    <div class="hint" id="daysHint" style="margin-bottom:.8rem">Working days will be counted automatically (weekends skipped).</div>' +
+      '    <button class="btn btn-primary" type="submit">Submit request</button>' +
+      '  </form>' +
+      '</div></div>';
+  }
+
+  /* ---------- my leaves ---------- */
+  function leaveRows() {
+    const rows = leavesOf(user.id);
+    if (!rows.length) {
+      return UI.empty('&#9998;', 'You have not applied for any leave', 'Use the form above to submit your first request.');
+    }
+    return '<div class="tbl-wrap"><table class="tbl">' +
+      '<thead><tr><th>Type</th><th>Dates</th><th>Days</th><th>Status</th><th>Comment</th></tr></thead><tbody>' +
+      rows.map(l => '<tr>' +
+        '<td>' + UI.esc(l.type) + '</td>' +
+        '<td class="small nowrap">' + UI.fmtDate(l.from) + ' → ' + UI.fmtDate(l.to) + '</td>' +
+        '<td>' + l.days + '</td>' +
+        '<td>' + UI.statusBadge(l.status) + '</td>' +
+        '<td class="small" style="max-width:240px">' + (l.comment ? UI.esc(l.comment) : '<span class="faint">—</span>') + '</td>' +
+      '</tr>').join('') +
+      '</tbody></table></div>';
+  }
+
+  /* ---------- my attendance ---------- */
+  function attendanceRows() {
+    const rows = attendanceOf(user.id).slice(0, 31);
+    if (!rows.length) {
+      return UI.empty('&#9200;', 'No attendance records are available yet', 'Check in above to create your first record.');
+    }
+    return '<div class="tbl-wrap"><table class="tbl">' +
+      '<thead><tr><th>Date</th><th>Check-in</th><th>Check-out</th><th>Status</th><th>Method</th></tr></thead><tbody>' +
+      rows.map(a => '<tr>' +
+        '<td class="nowrap">' + UI.fmtDate(a.date) + '</td>' +
+        '<td class="nowrap">' + UI.esc(a.checkIn) + '</td>' +
+        '<td class="nowrap">' + UI.esc(a.checkOut || '—') + '</td>' +
+        '<td>' + UI.statusBadge(a.status) + '</td>' +
+        '<td>' + methodCell(a) + '</td>' +
+      '</tr>').join('') +
+      '</tbody></table></div>';
+  }
+
+  /* ---------- announcements ---------- */
+  function announcements() {
+    const list = getAnnouncements().slice().reverse();
+    if (!list.length) return '<p class="muted small mb-0">No announcements yet.</p>';
+    return list.map(a => {
+      const author = findUser(a.by);
+      return '<div class="mb-1"><div style="font-size:.87rem">' + UI.esc(a.text) + '</div>' +
+        '<div class="smaller faint">' + UI.esc(author ? author.name : 'Admin') + ' · ' + UI.fmtDate(a.date) + '</div></div>';
+    }).join('');
+  }
+
+  function render() {
+    const rec = todayRecord();
+    const b = Leave.balance(user.id);
+    const myLate = attendanceOf(user.id).filter(a => a.late).length;
+
+    page.innerHTML =
+      '<div class="page-hd">' +
+      '  <div><h2>Welcome, ' + UI.esc(user.name.split(' ')[0]) + '</h2>' +
+      '  <p>' + UI.esc(user.department || 'No department') + ' · ' + UI.esc(company.name) + '</p></div>' +
+      '</div>' +
+
+      '<div class="stats mb-3">' +
+        '<div class="stat c-brand"><span class="ico" aria-hidden="true">&#9200;</span>' +
+          '<span><span class="val">' + UI.esc(rec ? rec.checkIn : '—') + '</span><span class="lbl">Check-in today</span></span></div>' +
+        '<div class="stat c-' + (rec && rec.status === 'late' ? 'warn' : rec && rec.status === 'half-day' ? 'info' : rec ? 'ok' : 'bad') + '">' +
+          '<span class="ico" aria-hidden="true">&#10003;</span>' +
+          '<span><span class="val" style="font-size:1.05rem">' + (rec ? UI.esc(rec.status) : 'not checked in') + '</span><span class="lbl">Today&rsquo;s status</span></span></div>' +
+        '<div class="stat c-info"><span class="ico" aria-hidden="true">&#9998;</span>' +
+          '<span><span class="val">' + b.left + '</span><span class="lbl">Leave days left</span></span></div>' +
+        '<div class="stat c-warn"><span class="ico" aria-hidden="true">&#9200;</span>' +
+          '<span><span class="val">' + myLate + '</span><span class="lbl">Late check-ins</span></span></div>' +
+      '</div>' +
+
+      '<div class="row mb-3">' +
+      '  <div class="grow" style="flex:1 1 380px">' + checkPanel() + '</div>' +
+      '  <div class="grow" style="flex:1 1 380px">' + leaveForm() + '</div>' +
+      '</div>' +
+
+      '<div class="row mb-3">' +
+      '  <div class="grow" style="flex:1 1 380px"><div class="card"><div class="card-hd">My leave requests</div><div id="myLeaves">' + leaveRows() + '</div></div></div>' +
+      '  <div class="grow" style="flex:1 1 380px"><div class="card"><div class="card-hd"><span>My attendance</span><span class="smaller muted">last 31 records</span></div><div id="myAtt">' + attendanceRows() + '</div></div></div>' +
+      '</div>' +
+
+      '<div class="row mb-3">' +
+      '  <div class="grow" style="flex:1 1 340px"><div class="card"><div class="card-hd">Announcements</div>' +
+      '    <div class="card-bd" id="annBox">' + announcements() + '</div></div></div>' +
+      '  <div class="grow" style="flex:1 1 300px"><div class="card">' +
+      '    <div class="card-hd">Change password</div><div class="card-bd">' +
+      '      <div class="alert alert-error" id="pwAlert"></div><div class="alert alert-ok" id="pwOk"></div>' +
+      '      <form id="pwForm" novalidate>' +
+      '        <div class="field"><label class="lbl" for="pCur">Current password <span class="req">*</span></label>' +
+      '          <input class="input" type="password" id="pCur" autocomplete="current-password"><div class="err"></div></div>' +
+      '        <div class="field"><label class="lbl" for="pNew">New password <span class="req">*</span></label>' +
+      '          <input class="input" type="password" id="pNew" autocomplete="new-password"><div class="err"></div></div>' +
+      '        <div class="field"><label class="lbl" for="pCon">Confirm new password <span class="req">*</span></label>' +
+      '          <input class="input" type="password" id="pCon" autocomplete="new-password"><div class="err"></div></div>' +
+      '        <button class="btn btn-outline" type="submit">Update password</button>' +
+      '      </form></div></div></div>' +
+      '</div>' +
+
+      '<div id="helperBox"></div>';
+
+    wire();
+  }
+
+  function wire() {
+    const handle = function (res) {
+      UI.toast(res.ok ? res.message : res.error, res.ok ? 'ok' : 'bad');
+      if (res.ok) render();
+    };
+
+    const camIn = document.getElementById('camInBtn');
+    const camOut = document.getElementById('camOutBtn');
+    const inBtn = document.getElementById('inBtn');
+    const outBtn = document.getElementById('outBtn');
+
+    if (camIn) camIn.onclick = function () { Camera.open({ mode: 'in', userId: user.id, onDone: handle }); };
+    if (camOut) camOut.onclick = function () { Camera.open({ mode: 'out', userId: user.id, onDone: handle }); };
+    if (inBtn) inBtn.onclick = function () { handle(Attendance.checkIn(user.id)); };
+    if (outBtn) outBtn.onclick = function () { handle(Attendance.checkOut(user.id)); };
+
+    /* live working-day count while picking dates */
+    const fromEl = document.getElementById('lvFrom');
+    const toEl = document.getElementById('lvTo');
+    const hint = document.getElementById('daysHint');
+    function updateHint() {
+      if (fromEl.value && toEl.value && toEl.value >= fromEl.value) {
+        const d = Leave.days(fromEl.value, toEl.value);
+        hint.textContent = d > 0
+          ? d + ' working day' + (d === 1 ? '' : 's') + ' will be counted (non-working days skipped).'
+          : 'That range contains no working days.';
+      } else {
+        hint.textContent = 'Working days will be counted automatically (weekends skipped).';
+      }
+    }
+    fromEl.addEventListener('change', updateHint);
+    toEl.addEventListener('change', updateHint);
+
+    document.getElementById('lvForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      UI.clearErrors(this);
+      UI.alertHide(document.getElementById('lvAlert'));
+
+      const data = {
+        type: document.getElementById('lvType').value,
+        from: document.getElementById('lvFrom').value,
+        to: document.getElementById('lvTo').value,
+        reason: document.getElementById('lvReason').value
+      };
+
+      let ok = true;
+      if (!data.type) { UI.setError('lvType', 'Choose a leave type.'); ok = false; }
+      if (!data.from) { UI.setError('lvFrom', 'Start date is required.'); ok = false; }
+      if (!data.to) { UI.setError('lvTo', 'End date is required.'); ok = false; }
+      if (!UI.required(data.reason)) { UI.setError('lvReason', 'Please give a short reason.'); ok = false; }
+      if (!ok) return;
+
+      const res = Leave.apply(data, user.id);
+      if (!res.ok) {
+        Object.keys(res.errors).forEach(k => {
+          const map = { lvType: 'type', lvFrom: 'from', lvTo: 'to' };
+          Object.keys(map).forEach(id => { if (map[id] === k) UI.setError(id, res.errors[k]); });
+        });
+        const first = this.querySelector('.field.invalid .input, .field.invalid .select');
+        if (first) first.focus();
+        return;
+      }
+
+      this.reset();
+      hint.textContent = 'Working days will be counted automatically (weekends skipped).';
+      UI.toast('Leave request submitted — waiting for approval');
+      render();
+    });
+
+    document.getElementById('pwForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      UI.clearErrors(this);
+      UI.alertHide(document.getElementById('pwAlert'));
+      UI.alertHide(document.getElementById('pwOk'));
+
+      const res = Auth.changePassword(
+        user.id,
+        document.getElementById('pCur').value,
+        document.getElementById('pNew').value,
+        document.getElementById('pCon').value
+      );
+      if (!res.ok) { UI.alertBox(document.getElementById('pwAlert'), res.error); return; }
+      this.reset();
+      UI.alertBox(document.getElementById('pwOk'), 'Password updated.', 'ok');
+    });
+
+    Helper.mount(document.getElementById('helperBox'), user);
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>

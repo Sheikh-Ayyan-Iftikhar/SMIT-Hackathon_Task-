@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='16'%20fill='%230e8c74'/%3E%3Ctext%20x='32'%20y='46'%20font-size='38'%20font-family='Arial'%20font-weight='700'%20fill='white'%20text-anchor='middle'%3EL%3C/text%3E%3C/svg%3E">
+<title>Payslip · LetMeHire</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<div class="shell" id="shell"></div>
+
+<script src="../js/storage.js"></script>
+<script src="../js/ui.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/employees.js"></script>
+<script src="../js/attendance.js"></script>
+<script src="../js/leave.js"></script>
+<script src="../js/helper.js"></script>
+<script>
+(function () {
+  const user = Auth.requireUser();
+  if (!user) return;
+  const isAdmin = user.role === 'admin';
+
+  const page = UI.shell({
+    active: 'payslip.html',
+    title: 'Payslip',
+    subtitle: 'Monthly salary slip — print or save as PDF',
+    nav: isAdmin ? [
+      { href: 'admin.html', label: 'Dashboard', icon: '&#9638;' },
+      { href: 'employees.html', label: 'Employees', icon: '&#9823;' },
+      { href: 'leaves.html', label: 'Leave requests', icon: '&#9998;' },
+      { href: 'payslip.html', label: 'Payslips', icon: '&#164;' },
+      { href: 'settings.html', label: 'Settings', icon: '&#9881;' }
+    ] : [
+      { href: 'employee.html', label: 'My dashboard', icon: '&#9638;' },
+      { href: 'payslip.html', label: 'My payslip', icon: '&#164;' }
+    ]
+  });
+
+  const company = getCompany();
+
+  /* last 12 months */
+  function monthOptions() {
+    let out = '';
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      const label = d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      out += '<option value="' + value + '">' + label + '</option>';
+    }
+    return out;
+  }
+
+  const state = { month: todayISO().slice(0, 7), userId: isAdmin ? (employees()[0] || {}).id : user.id };
+
+  function employeeOptions() {
+    return employees().map(u =>
+      '<option value="' + u.id + '"' + (Number(state.userId) === u.id ? ' selected' : '') + '>' + UI.esc(u.name) + '</option>'
+    ).join('');
+  }
+
+  /* ---------- payslip maths (rules from the spec) ---------- */
+  function buildSlip(userId, monthValue) {
+    const u = findUser(Number(userId));
+    if (!u) return null;
+
+    const parts = monthValue.split('-').map(Number);
+    const year = parts[0], month = parts[1] - 1;
+
+    const first = new Date(year, month, 1);
+    const last = new Date(year, month + 1, 0);
+    const today = todayISO();
+    const monthStartISO = todayISO(first);
+    const monthEndISO = todayISO(last);
+    const cutoff = monthEndISO < today ? monthEndISO : today;
+
+    const workingDays = workingDaysInMonth(year, month, company);
+    const elapsedWorking = (monthStartISO > today) ? 0 : countWorkingDays(monthStartISO, cutoff, company);
+
+    const records = attendanceOf(u.id).filter(a => a.date >= monthStartISO && a.date <= monthEndISO);
+    const recordedOnWorking = records.filter(a => isWorkingDay(a.date, company));
+
+    const halfDays = records.filter(a => a.status === 'half-day').length;
+    const lateDays = records.filter(a => a.late).length;
+    const presentDays = records.filter(a => a.status === 'present' || a.status === 'late').length;
+    const absentDays = Math.max(0, elapsedWorking - recordedOnWorking.length);
+
+    const salary = Number(u.salary || 0);
+    const perDay = workingDays > 0 ? salary / workingDays : 0;
+    const deduction = perDay * (absentDays + 0.5 * halfDays);
+    const net = Math.max(0, salary - deduction);
+
+    return {
+      user: u, year: year, month: month,
+      label: first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
+      salary: salary, workingDays: workingDays, elapsedWorking: elapsedWorking,
+      presentDays: presentDays, lateDays: lateDays, halfDays: halfDays, absentDays: absentDays,
+      perDay: perDay, deduction: deduction, net: net,
+      complete: monthEndISO < today
+    };
+  }
+
+  function render() {
+    const empCount = employees().length;
+
+    if (!empCount) {
+      page.innerHTML = UI.empty('&#164;', 'No employees to pay',
+        'Payslips are calculated from an employee salary and their attendance. Add an employee first.',
+        '<a class="btn btn-primary" href="employees.html">Add employee</a>');
+      return;
+    }
+
+    if (!isAdmin && state.userId !== user.id) state.userId = user.id;
+
+    const slip = buildSlip(state.userId, state.month);
+
+    page.innerHTML =
+      '<div class="page-hd no-print">' +
+      '  <div><h2>Monthly payslip</h2>' +
+      '  <p>Per day = salary ÷ working days in the month · deduction = per day × (absent + 0.5 × half days)</p></div>' +
+      '  <button class="btn btn-outline" id="printBtn" type="button">Print / save as PDF</button>' +
+      '</div>' +
+
+      '<div class="card mb-3 no-print"><div class="card-bd"><div class="row">' +
+      '  <div class="grow" style="flex:1 1 220px"><label class="lbl" for="mSel">Month</label>' +
+      '    <select class="select" id="mSel">' + monthOptions() + '</select></div>' +
+      (isAdmin
+        ? '<div class="grow" style="flex:2 1 260px"><label class="lbl" for="eSel">Employee</label>' +
+          '<select class="select" id="eSel">' + employeeOptions() + '</select></div>'
+        : '<div class="grow" style="flex:2 1 260px"><label class="lbl">Employee</label>' +
+          '<input class="input" value="' + UI.esc(user.name) + '" readonly></div>') +
+      '</div></div></div>' +
+
+      (slip ? slipHtml(slip) : UI.empty('&#164;', 'This employee has no salary on record', 'Edit the employee and set a monthly salary greater than 0.'));
+
+    document.getElementById('mSel').value = state.month;
+    document.getElementById('mSel').onchange = e => { state.month = e.target.value; render(); };
+    const eSel = document.getElementById('eSel');
+    if (eSel) eSel.onchange = e => { state.userId = Number(e.target.value); render(); };
+    document.getElementById('printBtn').onclick = () => window.print();
+  }
+
+  function row(label, value, strong) {
+    return '<tr><td class="' + (strong ? 'bold' : '') + '">' + label + '</td>' +
+      '<td class="right ' + (strong ? 'bold' : '') + '">' + value + '</td></tr>';
+  }
+
+  function slipHtml(s) {
+    const monthRecords = attendanceOf(s.user.id).filter(a => a.date.slice(0, 7) === s.year + '-' + String(s.month + 1).padStart(2, '0'));
+
+    return '<div class="payslip">' +
+      '<div class="ps-hd">' +
+      '  <div><div class="bold" style="font-size:1.15rem">' + UI.esc(company.name) + '</div>' +
+      '  <div class="small muted">Salary slip for ' + UI.esc(s.label) + '</div></div>' +
+      '  <div class="right"><div class="flex" style="justify-content:flex-end"><span class="av lg">' + UI.esc(UI.initials(s.user.name)) + '</span></div></div>' +
+      '</div>' +
+
+      '<div class="row mb-3">' +
+      '  <div class="grow"><div class="smaller muted">EMPLOYEE</div><div class="bold">' + UI.esc(s.user.name) + '</div></div>' +
+      '  <div class="grow"><div class="smaller muted">DEPARTMENT</div><div class="bold">' + UI.esc(s.user.department || '—') + '</div></div>' +
+      '  <div class="grow"><div class="smaller muted">MONTHLY SALARY</div><div class="bold">' + UI.fmtMoney(s.salary) + '</div></div>' +
+      '  <div class="grow"><div class="smaller muted">STATUS</div><div class="bold">' + (s.complete ? 'Final' : 'In progress') + '</div></div>' +
+      '</div>' +
+
+      '<div class="grid-3 mb-3">' +
+        '<div class="stat c-brand"><span class="ico">&#9200;</span><span><span class="val">' + s.workingDays + '</span><span class="lbl">Working days in month</span></span></div>' +
+        '<div class="stat c-ok"><span class="ico">&#10003;</span><span><span class="val">' + s.presentDays + '</span><span class="lbl">Present / on time</span></span></div>' +
+        '<div class="stat c-warn"><span class="ico">&#9200;</span><span><span class="val">' + s.lateDays + '</span><span class="lbl">Late check-ins</span></span></div>' +
+        '<div class="stat c-info"><span class="ico">&#9733;</span><span><span class="val">' + s.halfDays + '</span><span class="lbl">Half days</span></span></div>' +
+        '<div class="stat c-bad"><span class="ico">&#10007;</span><span><span class="val">' + s.absentDays + '</span><span class="lbl">Absent days</span></span></div>' +
+        '<div class="stat c-brand"><span class="ico">&#164;</span><span><span class="val" style="font-size:1.1rem">' + UI.fmtMoney(Math.round(s.perDay)) + '</span><span class="lbl">Per day</span></span></div>' +
+      '</div>' +
+
+      '<table class="tbl"><tbody>' +
+        row('Basic salary', UI.fmtMoney(s.salary)) +
+        row('Per-day rate  (' + UI.fmtMoney(s.salary) + ' ÷ ' + s.workingDays + ' days)', UI.fmtMoney(Math.round(s.perDay * 100) / 100)) +
+        row('Absent deduction  (' + s.absentDays + ' × per day)', '− ' + UI.fmtMoney(Math.round(s.perDay * s.absentDays * 100) / 100)) +
+        row('Half-day deduction  (' + s.halfDays + ' × 0.5 × per day)', '− ' + UI.fmtMoney(Math.round(s.perDay * 0.5 * s.halfDays * 100) / 100)) +
+        row('<b>Net pay</b>', '<span class="total">' + UI.fmtMoney(Math.round(s.net)) + '</span>', true) +
+      '</tbody></table>' +
+
+      '<div class="divider"></div>' +
+      '<div class="between wrap">' +
+      '  <div class="small muted">Attendance records in ' + UI.esc(s.label) + ': <b>' + monthRecords.length + '</b>' +
+      (s.complete ? '' : ' · month not finished, so future working days are not counted as absent') + '</div>' +
+      '  <div class="small muted">Generated ' + UI.fmtDate(todayISO()) + '</div>' +
+      '</div>' +
+      '</div>';
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>

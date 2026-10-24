@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='16'%20fill='%230e8c74'/%3E%3Ctext%20x='32'%20y='46'%20font-size='38'%20font-family='Arial'%20font-weight='700'%20fill='white'%20text-anchor='middle'%3EL%3C/text%3E%3C/svg%3E">
+<title>Admin dashboard · LetMeHire</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<div class="shell" id="shell"></div>
+
+<script src="../js/storage.js"></script>
+<script src="../js/ui.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/employees.js"></script>
+<script src="../js/attendance.js"></script>
+<script src="../js/leave.js"></script>
+<script src="../js/helper.js"></script>
+<script>
+(function () {
+  const user = Auth.requireRole('admin');
+  if (!user) return;
+
+  const page = UI.shell({
+    active: 'admin.html',
+    title: 'Admin dashboard',
+    subtitle: 'Company totals for today',
+    nav: [
+      { href: 'admin.html', label: 'Dashboard', icon: '&#9638;' },
+      { href: 'employees.html', label: 'Employees', icon: '&#9823;' },
+      { href: 'leaves.html', label: 'Leave requests', icon: '&#9998;' },
+      { href: 'payslip.html', label: 'Payslips', icon: '&#164;' },
+      { href: 'settings.html', label: 'Settings', icon: '&#9881;' }
+    ]
+  });
+
+  const company = getCompany();
+  const today = todayISO();
+  const allEmployees = employees();
+  const summary = Attendance.summaryOn(today);
+  const pending = Leave.pending();
+  const onLeave = Leave.onLeaveToday();
+  const lateToday = attendanceOn(today).filter(a => a.late);
+
+  function stat(color, icon, value, label, extra) {
+    return '<div class="stat c-' + color + '">' +
+      '<span class="ico" aria-hidden="true">' + icon + '</span>' +
+      '<span><span class="val">' + value + '</span><span class="lbl">' + UI.esc(label) + '</span></span>' +
+      '</div>' + (extra || '');
+  }
+
+  /* ---- today's attendance table ---- */
+  function attendanceRows() {
+    if (!allEmployees.length) return '';
+    return allEmployees.map(u => {
+      const rec = attendanceFor(u.id, today);
+      const working = isWorkingDay(today, company);
+      let status;
+      if (rec) status = UI.statusBadge(rec.status);
+      else if (!working) status = '<span class="badge badge-mute">non&#8209;working day</span>';
+      else status = '<span class="badge badge-bad">absent</span>';
+
+      return '<tr>' +
+        '<td><div class="flex"><span class="av">' + UI.esc(UI.initials(u.name)) + '</span>' +
+        '<span class="grow"><span class="bold txt" style="display:block">' + UI.esc(u.name) + '</span>' +
+        '<span class="smaller muted">' + UI.esc(u.department || 'No department') + '</span></span></div></td>' +
+        '<td class="nowrap">' + UI.esc(rec ? rec.checkIn : '—') + '</td>' +
+        '<td class="nowrap">' + UI.esc(rec && rec.checkOut ? rec.checkOut : '—') + '</td>' +
+        '<td>' + status + '</td>' +
+        '<td>' + methodCell(rec) + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  /* camera vs manual check-in, with the stored snapshot when there is one */
+  function methodCell(rec) {
+    const m = rec && rec.meta;
+    if (!m || m.source !== 'camera') return '<span class="smaller faint">—</span>';
+    const face = m.face === 'detected' ? 'face ✓' : 'face —';
+    const where = m.geo ? UI.esc(m.geo) : '';
+    return (m.photo ? '<img class="thumb" src="' + m.photo + '" alt="Check-in snapshot" title="' + UI.esc(metaTitle(rec)) + '">' : '') +
+      '<span class="smaller">camera<br><span class="faint">' + face + (where ? ' · ' + where : '') + '</span></span>';
+  }
+  function metaTitle(rec) {
+    const m = rec.meta || {};
+    return (m.meters != null ? m.meters + ' m from office · ' : '') + (m.accuracy != null ? '±' + m.accuracy + ' m accuracy' : '');
+  }
+
+  /* ---- announcements ---- */
+  function announcementList() {
+    const list = getAnnouncements().slice().reverse().slice(0, 5);
+    if (!list.length) return '<p class="muted small mb-0">No announcements posted yet.</p>';
+    return list.map(a => {
+      const author = findUser(a.by);
+      return '<div class="mb-1" style="font-size:.87rem"><div>' + UI.esc(a.text) + '</div>' +
+        '<div class="smaller faint">' + UI.esc(author ? author.name : 'Admin') + ' · ' + UI.fmtDate(a.date) + '</div></div>';
+    }).join('');
+  }
+
+  page.innerHTML =
+    '<div class="page-hd">' +
+    '  <div><h2>' + UI.esc(company.name) + '</h2>' +
+    '  <p>' + UI.esc(new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })) +
+    '  · office starts ' + UI.esc(company.startTime) + ' + ' + company.graceMinutes + ' min grace</p></div>' +
+    '  <a class="btn btn-primary" href="employees.html">+ Add employee</a>' +
+    '</div>' +
+
+    '<div class="stats mb-3">' +
+      stat('brand', '&#9823;', allEmployees.length, 'Employees') +
+      stat('ok', '&#10003;', summary.present, 'Present today') +
+      stat('warn', '&#9200;', summary.late, 'Late today') +
+      stat('bad', '&#10007;', summary.absent, 'Absent today') +
+      stat('info', '&#9998;', pending.length, 'Pending leaves') +
+    '</div>' +
+
+    '<div class="row mb-3">' +
+      '  <div class="grow" style="flex:2 1 460px">' +
+      '    <div class="card">' +
+      '      <div class="card-hd"><span>Today&rsquo;s attendance</span>' +
+      '        <span class="smaller muted">' + onLeave.length + ' on leave · ' + lateToday.length + ' late arrival' + (lateToday.length === 1 ? '' : 's') + '</span></div>' +
+      (allEmployees.length
+        ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Employee</th><th>Check-in</th><th>Check-out</th><th>Status</th><th>Method</th></tr></thead><tbody>' + attendanceRows() + '</tbody></table></div>'
+        : UI.empty('&#9823;', 'No employees registered yet', 'Add your first employee to start recording attendance.', '<a class="btn btn-primary" href="employees.html">Add employee</a>')) +
+      '    </div>' +
+      '  </div>' +
+      '  <div class="grow" style="flex:1 1 300px">' +
+      '    <div class="card mb-3">' +
+      '      <div class="card-hd"><span>Pending leave</span><a class="small" href="leaves.html">Review all</a></div>' +
+      '      <div class="card-bd">' + (pending.length
+            ? pending.slice(0, 5).map(l => {
+                const u = findUser(l.userId);
+                return '<div class="between mb-1" style="font-size:.87rem"><span class="txt">' + UI.esc(u ? u.name : 'Unknown') + '</span>' +
+                  '<span class="muted nowrap smaller">' + UI.fmtDate(l.from) + ' → ' + UI.fmtDate(l.to) + '</span></div>';
+              }).join('')
+            : '<p class="muted small mb-0">No leave requests are awaiting review.</p>') +
+      '      </div>' +
+      '    </div>' +
+      '    <div class="card">' +
+      '      <div class="card-hd">Announcements</div>' +
+      '      <div class="card-bd">' +
+      '        <form id="annForm" class="mb-2">' +
+      '          <label class="lbl" for="annText">Post an announcement</label>' +
+      '          <textarea class="input" id="annText" rows="2" placeholder="Office closed on Friday…"></textarea>' +
+      '          <div class="err" id="annErr">Write something first.</div>' +
+      '          <button class="btn btn-outline btn-sm mt-1" type="submit">Post</button>' +
+      '        </form>' +
+      '        <div class="divider"></div>' +
+      '        <div id="annList">' + announcementList() + '</div>' +
+      '      </div>' +
+      '    </div>' +
+      '  </div>' +
+    '</div>' +
+
+    '<div id="helperBox"></div>';
+
+  /* ---- announcements ---- */
+  document.getElementById('annForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const el = document.getElementById('annText');
+    const field = el.closest('.field');
+    const text = el.value.trim();
+    if (!text) { field.classList.add('invalid'); return; }
+    field.classList.remove('invalid');
+
+    const list = getAnnouncements();
+    list.push({ id: nextId(), text: text, by: user.id, date: todayISO() });
+    setAnnouncements(list);
+    el.value = '';
+    document.getElementById('annList').innerHTML = announcementList();
+    UI.toast('Announcement posted');
+  });
+
+  /* ---- smart helper ---- */
+  Helper.mount(document.getElementById('helperBox'), user);
+})();
+</script>
+</body>
+</html>

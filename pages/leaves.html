@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='16'%20fill='%230e8c74'/%3E%3Ctext%20x='32'%20y='46'%20font-size='38'%20font-family='Arial'%20font-weight='700'%20fill='white'%20text-anchor='middle'%3EL%3C/text%3E%3C/svg%3E">
+<title>Leave requests · LetMeHire</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<div class="shell" id="shell"></div>
+
+<script src="../js/storage.js"></script>
+<script src="../js/ui.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/employees.js"></script>
+<script src="../js/attendance.js"></script>
+<script src="../js/leave.js"></script>
+<script src="../js/helper.js"></script>
+<script>
+(function () {
+  const user = Auth.requireRole('admin');
+  if (!user) return;
+
+  const page = UI.shell({
+    active: 'leaves.html',
+    title: 'Leave requests',
+    subtitle: 'Approve or reject with a comment',
+    nav: [
+      { href: 'admin.html', label: 'Dashboard', icon: '&#9638;' },
+      { href: 'employees.html', label: 'Employees', icon: '&#9823;' },
+      { href: 'leaves.html', label: 'Leave requests', icon: '&#9998;' },
+      { href: 'payslip.html', label: 'Payslips', icon: '&#164;' },
+      { href: 'settings.html', label: 'Settings', icon: '&#9881;' }
+    ]
+  });
+
+  let statusFilter = '';
+
+  page.innerHTML =
+    '<div class="page-hd">' +
+    '  <div><h2>Leave requests</h2><p>Working days only · decisions and comments are stored with each request.</p></div>' +
+    '</div>' +
+
+    '<div class="card mb-2"><div class="card-bd"><div class="row">' +
+    '  <div class="grow" style="flex:1 1 220px">' +
+    '    <label class="lbl" for="status">Status</label>' +
+    '    <select class="select" id="status">' +
+    '      <option value="">All requests</option>' +
+    '      <option value="pending">Pending</option>' +
+    '      <option value="approved">Approved</option>' +
+    '      <option value="rejected">Rejected</option>' +
+    '    </select>' +
+    '  </div>' +
+    '  <div style="flex:0 0 auto"><button class="btn btn-outline" id="clearBtn" type="button" style="margin-top:1.55rem">Clear</button></div>' +
+    '</div></div></div>' +
+
+    '<div class="card" id="listCard"></div>';
+
+  const listCard = document.getElementById('listCard');
+
+  function nameOf(id) { const u = findUser(id); return u ? u.name : 'Unknown employee'; }
+
+  function render() {
+    let rows = getLeaves().slice().sort((a, b) => b.id - a.id);
+    if (statusFilter) rows = rows.filter(l => l.status === statusFilter);
+
+    if (!getLeaves().length) {
+      listCard.innerHTML = UI.empty('&#9998;', 'No leave requests have been submitted',
+        'Employees apply from their own dashboard. Once they do, requests will appear here for review.');
+      return;
+    }
+
+    if (!rows.length) {
+      listCard.innerHTML = UI.empty('&#128269;', 'No requests with this status',
+        'Choose a different status filter to see other requests.',
+        '<button class="btn btn-outline" type="button" id="emptyClear">Show all</button>');
+      document.getElementById('emptyClear').onclick = () => { statusFilter = ''; document.getElementById('status').value = ''; render(); };
+      return;
+    }
+
+    const pendingCount = getLeaves().filter(l => l.status === 'pending').length;
+
+    listCard.innerHTML =
+      '<div class="card-hd"><span>' + rows.length + ' request' + (rows.length === 1 ? '' : 's') + '</span>' +
+      '<span class="smaller muted">' + pendingCount + ' awaiting review</span></div>' +
+      '<div class="tbl-wrap"><table class="tbl">' +
+      '<thead><tr><th>Employee</th><th>Type</th><th>Dates</th><th>Days</th><th>Status</th><th>Comment</th><th class="right">Action</th></tr></thead><tbody>' +
+      rows.map(l => {
+        const u = findUser(l.userId);
+        const decidedBy = l.decidedBy ? findUser(l.decidedBy) : null;
+        return '<tr>' +
+          '<td><span class="bold txt">' + UI.esc(nameOf(l.userId)) + '</span>' +
+          (u ? '<div class="smaller muted">' + UI.esc(u.department || 'No department') + '</div>' : '') + '</td>' +
+          '<td>' + UI.esc(l.type) + '</td>' +
+          '<td class="nowrap small">' + UI.fmtDate(l.from) + ' → ' + UI.fmtDate(l.to) +
+          (l.reason ? '<div class="smaller muted txt" style="max-width:220px">' + UI.esc(l.reason) + '</div>' : '') + '</td>' +
+          '<td class="nowrap">' + l.days + '</td>' +
+          '<td>' + UI.statusBadge(l.status) + '</td>' +
+          '<td class="small" style="max-width:220px">' +
+            (l.comment ? UI.esc(l.comment) + '<div class="smaller faint">' + UI.esc(decidedBy ? decidedBy.name : '') + '</div>' : '<span class="faint">—</span>') +
+          '</td>' +
+          '<td class="right nowrap">' + (l.status === 'pending'
+            ? '<button class="btn btn-sm btn-primary" type="button" data-ok="' + l.id + '">Approve</button> ' +
+              '<button class="btn btn-sm btn-danger" type="button" data-no="' + l.id + '">Reject</button>'
+            : '<span class="smaller faint">decided ' + (l.decidedAt ? UI.fmtDate(String(l.decidedAt).slice(0, 10)) : '') + '</span>') +
+          '</td></tr>';
+      }).join('') +
+      '</tbody></table></div>';
+
+    listCard.querySelectorAll('[data-ok]').forEach(b => b.onclick = () => openDecision(Number(b.getAttribute('data-ok')), 'approved'));
+    listCard.querySelectorAll('[data-no]').forEach(b => b.onclick = () => openDecision(Number(b.getAttribute('data-no')), 'rejected'));
+  }
+
+  /* ---- decision modal (comment required) ---- */
+  let modal = null;
+
+  function openDecision(id, decision) {
+    const req = getLeaves().find(l => l.id === id);
+    if (!req) return;
+    const approve = decision === 'approved';
+
+    closeModal();
+    modal = document.createElement('div');
+    modal.className = 'modal-back on';
+    modal.innerHTML =
+      '<div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="decTitle">' +
+      '  <div class="modal-hd"><span id="decTitle">' + (approve ? 'Approve leave' : 'Reject leave') + '</span>' +
+      '    <button type="button" data-x aria-label="Close">&times;</button></div>' +
+      '  <form id="decForm" novalidate>' +
+      '    <div class="modal-bd">' +
+      '      <p class="small muted">' + UI.esc(nameOf(req.userId)) + ' · ' + UI.esc(req.type) + ' · ' +
+            UI.fmtDate(req.from) + ' → ' + UI.fmtDate(req.to) + ' (' + req.days + ' working days)</p>' +
+      '      <div class="field">' +
+      '        <label class="lbl" for="cmt">Comment <span class="req">*</span></label>' +
+      '        <textarea class="input" id="cmt" rows="3" placeholder="' + (approve ? 'Approved, enjoy your time off.' : 'Rejected — project deadline this week.') + '"></textarea>' +
+      '        <div class="err"></div>' +
+      '      </div>' +
+      '      <div class="alert alert-error" id="decAlert"></div>' +
+      '    </div>' +
+      '    <div class="modal-ft">' +
+      '      <button class="btn btn-outline" type="button" data-x>Cancel</button>' +
+      '      <button class="btn ' + (approve ? 'btn-primary' : 'btn-danger') + '" type="submit">' + (approve ? 'Approve' : 'Reject') + '</button>' +
+      '    </div>' +
+      '  </form></div>';
+    document.body.appendChild(modal);
+    modal.querySelectorAll('[data-x]').forEach(b => b.onclick = closeModal);
+    modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+
+    document.getElementById('decForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      UI.clearErrors(modal);
+      const comment = document.getElementById('cmt').value;
+
+      if (!comment.trim()) { UI.setError('cmt', 'A comment is required.'); document.getElementById('cmt').focus(); return; }
+
+      const res = Leave.decide(id, decision, comment, user.id);
+      if (!res.ok) { UI.alertBox(document.getElementById('decAlert'), res.error); return; }
+
+      closeModal();
+      render();
+      UI.toast('Request ' + decision);
+    });
+    document.getElementById('cmt').focus();
+  }
+
+  function closeModal() { if (modal) { modal.remove(); modal = null; } }
+
+  document.getElementById('status').addEventListener('change', e => { statusFilter = e.target.value; render(); });
+  document.getElementById('clearBtn').onclick = () => { statusFilter = ''; document.getElementById('status').value = ''; render(); };
+
+  render();
+})();
+</script>
+</body>
+</html>

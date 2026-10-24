@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LetMeHire — Sign in</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='16'%20fill='%230e8c74'/%3E%3Ctext%20x='32'%20y='46'%20font-size='38'%20font-family='Arial'%20font-weight='700'%20fill='white'%20text-anchor='middle'%3EL%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="auth">
+  <div class="auth-card wide" id="card">
+    <div class="auth-split">
+
+      <aside class="auth-side">
+        <div>
+          <div class="kicker">Saylani &middot; Beginner Track</div>
+          <h2>Human resources, kept light.</h2>
+          <p>Attendance, leave, payslips and a helper that answers from your own records &mdash; no backend, no framework.</p>
+        </div>
+        <ul>
+          <li><span class="dot">1</span><span><b>Set up once.</b> Create your company and the Admin account.</span></li>
+          <li><span class="dot">2</span><span><b>Run the rules.</b> Late, half day, absent, leave quota, payslip maths.</span></li>
+          <li><span class="dot">3</span><span><b>Check in by camera.</b> Photo, location and a face check.</span></li>
+        </ul>
+      </aside>
+
+      <div class="auth-form">
+        <div class="auth-brand"><span class="mark" aria-hidden="true">L</span><span>LetMeHire</span></div>
+
+        <!-- ================= FIRST-RUN SETUP ================= -->
+        <form id="setupForm" class="d-none" novalidate>
+          <h1>Set up your company</h1>
+          <p class="lede">First run. Create the company and the Admin account &mdash; this app starts empty, with no sample data.</p>
+
+          <div class="steps" aria-hidden="true">
+            <span class="st on">1 &middot; Company</span>
+            <span class="st on">2 &middot; Admin account</span>
+          </div>
+
+          <div class="field">
+            <label class="lbl" for="companyName">Company name <span class="req">*</span></label>
+            <input class="input" id="companyName" name="companyName" placeholder="Saylani Technologies" autocomplete="organization">
+            <div class="err" id="companyNameErr"></div>
+          </div>
+
+          <div class="field">
+            <label class="lbl" for="adminName">Your name <span class="req">*</span></label>
+            <input class="input" id="adminName" name="adminName" placeholder="Jane Ahmed" autocomplete="name">
+            <div class="err" id="adminNameErr"></div>
+          </div>
+
+          <div class="field">
+            <label class="lbl" for="email">Work email <span class="req">*</span></label>
+            <input class="input" type="email" id="email" name="email" placeholder="you@company.com" autocomplete="username">
+            <div class="err" id="emailErr"></div>
+          </div>
+
+          <div class="field">
+            <label class="lbl" for="password">Password <span class="req">*</span></label>
+            <input class="input" type="password" id="password" name="password" placeholder="At least 6 characters" autocomplete="new-password">
+            <div class="err" id="passwordErr"></div>
+          </div>
+
+          <div class="field">
+            <label class="lbl" for="confirm">Confirm password <span class="req">*</span></label>
+            <input class="input" type="password" id="confirm" name="confirm" autocomplete="new-password">
+            <div class="err" id="confirmErr"></div>
+          </div>
+
+          <button class="btn btn-primary btn-block" type="submit">Create company &amp; Admin account</button>
+          <p class="small muted center mt-1 mb-0">Already set up? <a href="#" id="toLogin">Sign in instead</a></p>
+        </form>
+
+        <!-- ================= LOGIN ================= -->
+        <form id="loginForm" novalidate>
+          <h1>Sign in</h1>
+          <p class="lede">Sign in to your LetMeHire workspace.</p>
+
+          <div class="field">
+            <label class="lbl" for="lEmail">Email <span class="req">*</span></label>
+            <input class="input" type="email" id="lEmail" autocomplete="username" placeholder="you@company.com">
+            <div class="err" id="lEmailErr"></div>
+          </div>
+
+          <div class="field">
+            <label class="lbl" for="lPassword">Password <span class="req">*</span></label>
+            <input class="input" type="password" id="lPassword" autocomplete="current-password">
+            <div class="err" id="lPasswordErr"></div>
+          </div>
+
+          <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+
+          <p class="small muted center mt-1 mb-0" id="setupHint">
+            First time here? <a href="#" id="toSetup">Run first-time setup</a>
+          </p>
+          <div class="divider"></div>
+          <p class="small center mb-0">
+            <button type="button" class="btn btn-ghost btn-sm" id="resetApp">Reset app (starts empty again)</button>
+          </p>
+        </form>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script src="js/storage.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/auth.js"></script>
+<script>
+(function () {
+  const setupForm = document.getElementById('setupForm');
+  const loginForm = document.getElementById('loginForm');
+  const setupHint = document.getElementById('setupHint');
+
+  function show(which) {
+    UI.clearErrors();
+    setupForm.classList.toggle('d-none', which !== 'setup');
+    loginForm.classList.toggle('d-none', which !== 'login');
+    document.getElementById('card').classList.toggle('wide', which === 'setup');
+  }
+
+  /* Already signed in? go to the right dashboard. */
+  const sessionUser = currentUser();
+  if (sessionUser) {
+    location.replace(sessionUser.role === 'admin' ? 'pages/admin.html' : 'pages/employee.html');
+  } else if (hasCompany()) {
+    show('login');
+  } else {
+    show('setup');
+    setupHint.classList.add('d-none');
+  }
+
+  document.getElementById('toSetup').addEventListener('click', function (e) {
+    e.preventDefault();
+    if (hasCompany()) { UI.toast('Setup has already been completed.', 'bad'); return; }
+    show('setup');
+    setupHint.classList.remove('d-none');
+  });
+
+  document.getElementById('toLogin').addEventListener('click', function (e) {
+    e.preventDefault();
+    show('login');
+  });
+
+  /* ---------- First-run setup ---------- */
+  setupForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    UI.clearErrors(setupForm);
+
+    const res = Auth.setupCompany({
+      companyName: document.getElementById('companyName').value,
+      adminName: document.getElementById('adminName').value,
+      email: document.getElementById('email').value,
+      password: document.getElementById('password').value,
+      confirm: document.getElementById('confirm').value
+    });
+
+    if (!res.ok) {
+      Object.keys(res.errors).forEach(k => UI.setError(k, res.errors[k]));
+      const first = setupForm.querySelector('.field.invalid .input');
+      if (first) first.focus();
+      return;
+    }
+
+    UI.toast('Company created. Welcome, ' + res.user.name.split(' ')[0] + '!');
+    location.href = 'pages/admin.html';
+  });
+
+  /* ---------- Login ---------- */
+  loginForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    UI.clearErrors(loginForm);
+
+    const res = Auth.login(document.getElementById('lEmail').value, document.getElementById('lPassword').value);
+
+    if (!res.ok) {
+      if (res.errors && res.errors.email) UI.setError('lEmail', res.errors.email);
+      if (res.errors && res.errors.password) UI.setError('lPassword', res.errors.password);
+      const first = loginForm.querySelector('.field.invalid .input');
+      if (first) first.focus();
+      return;
+    }
+
+    location.href = res.user.role === 'admin' ? 'pages/admin.html' : 'pages/employee.html';
+  });
+
+  /* ---------- Reset (demo convenience) ---------- */
+  document.getElementById('resetApp').addEventListener('click', function () {
+    UI.confirm({
+      title: 'Reset the app?',
+      message: 'This deletes the company, employees, attendance and leaves stored in this browser. The app returns to its empty first-run state.',
+      confirm: 'Reset everything',
+      danger: true
+    }, function () {
+      dbClear();
+      location.reload();
+    });
+  });
+})();
+</script>
+</body>
+</html>

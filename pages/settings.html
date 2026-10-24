@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='16'%20fill='%230e8c74'/%3E%3Ctext%20x='32'%20y='46'%20font-size='38'%20font-family='Arial'%20font-weight='700'%20fill='white'%20text-anchor='middle'%3EL%3C/text%3E%3C/svg%3E">
+<title>Settings · LetMeHire</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<div class="shell" id="shell"></div>
+
+<script src="../js/storage.js"></script>
+<script src="../js/ui.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/employees.js"></script>
+<script src="../js/attendance.js"></script>
+<script src="../js/leave.js"></script>
+<script src="../js/helper.js"></script>
+<script>
+(function () {
+  const user = Auth.requireRole('admin');
+  if (!user) return;
+
+  const page = UI.shell({
+    active: 'settings.html',
+    title: 'Settings',
+    subtitle: 'The rules the app applies to attendance and leave',
+    nav: [
+      { href: 'admin.html', label: 'Dashboard', icon: '&#9638;' },
+      { href: 'employees.html', label: 'Employees', icon: '&#9823;' },
+      { href: 'leaves.html', label: 'Leave requests', icon: '&#9998;' },
+      { href: 'payslip.html', label: 'Payslips', icon: '&#164;' },
+      { href: 'settings.html', label: 'Settings', icon: '&#9881;' }
+    ]
+  });
+
+  const c = getCompany();
+  const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  page.innerHTML =
+    '<div class="page-hd">' +
+    '  <div><h2>Company settings</h2><p>These values drive the late / half-day rules, the leave quota and the payslip.</p></div>' +
+    '</div>' +
+
+    '<div class="row mb-3">' +
+    '  <div class="grow" style="flex:2 1 420px">' +
+    '    <div class="card">' +
+    '      <div class="card-hd">Office rules</div>' +
+    '      <div class="card-bd">' +
+    '        <div class="alert alert-error" id="coAlert"></div>' +
+    '        <form id="coForm" novalidate>' +
+    '          <div class="row">' +
+    '            <div class="grow"><div class="field">' +
+    '              <label class="lbl" for="sName">Company name <span class="req">*</span></label>' +
+    '              <input class="input" id="sName" value="' + UI.esc(c.name) + '"><div class="err"></div></div></div>' +
+    '            <div class="grow"><div class="field">' +
+    '              <label class="lbl" for="sCurrency">Currency</label>' +
+    '              <select class="select" id="sCurrency">' +
+                      ['PKR', 'USD', 'AED', 'EUR'].map(x => '<option' + (c.currency === x ? ' selected' : '') + '>' + x + '</option>').join('') +
+    '              </select><div class="err"></div></div></div>' +
+    '          </div>' +
+
+    '          <div class="row">' +
+    '            <div class="grow"><div class="field">' +
+    '              <label class="lbl" for="sStart">Office start time <span class="req">*</span></label>' +
+    '              <input class="input" type="time" id="sStart" value="' + UI.esc(c.startTime) + '"><div class="err"></div></div></div>' +
+    '            <div class="grow"><div class="field">' +
+    '              <label class="lbl" for="sGrace">Grace minutes <span class="req">*</span></label>' +
+    '              <input class="input" type="number" min="0" max="120" id="sGrace" value="' + UI.esc(c.graceMinutes) + '">' +
+    '              <div class="err"></div>' +
+    '              <div class="hint">Check-in after start + grace = <b>late</b>. e.g. 09:00 + 15.</div></div></div>' +
+    '            <div class="grow"><div class="field">' +
+    '              <label class="lbl" for="sQuota">Yearly leave quota <span class="req">*</span></label>' +
+    '              <input class="input" type="number" min="0" max="60" id="sQuota" value="' + UI.esc(c.leaveQuota) + '">' +
+    '              <div class="err"></div>' +
+    '              <div class="hint">Leave days are counted per calendar year.</div></div></div>' +
+    '          </div>' +
+
+    '          <div class="field">' +
+    '            <label class="lbl">Working days <span class="req">*</span></label>' +
+    '            <div class="flex wrap" style="gap:.6rem">' +
+                      DAY_NAMES.map((d, i) =>
+                        '<label class="flex gap-sm small" style="margin:0">' +
+                        '<input type="checkbox" class="wd" value="' + i + '"' + (c.workingDays.indexOf(i) !== -1 ? ' checked' : '') + '> ' + d +
+                        '</label>').join('') +
+    '            </div>' +
+    '            <div class="err" id="wdErr">Pick at least one working day.</div>' +
+    '          </div>' +
+
+    '          <div class="divider"></div>' +
+    '          <div class="eyebrow">Camera check-in</div>' +
+    '          <div class="row">' +
+    '            <div class="grow"><div class="field">' +
+    '              <label class="lbl" for="sLat">Office latitude</label>' +
+    '              <input class="input" id="sLat" inputmode="decimal" placeholder="24.8607" value="' + UI.esc(c.officeLat == null ? '' : c.officeLat) + '">' +
+    '              <div class="err"></div></div></div>' +
+    '            <div class="grow"><div class="field">' +
+    '              <label class="lbl" for="sLng">Office longitude</label>' +
+    '              <input class="input" id="sLng" inputmode="decimal" placeholder="67.0011" value="' + UI.esc(c.officeLng == null ? '' : c.officeLng) + '">' +
+    '              <div class="err"></div></div></div>' +
+    '            <div class="grow"><div class="field">' +
+    '              <label class="lbl" for="sRadius">Radius (metres)</label>' +
+    '              <input class="input" type="number" min="10" max="5000" id="sRadius" value="' + UI.esc(c.officeRadius == null ? 100 : c.officeRadius) + '">' +
+    '              <div class="err"></div></div></div>' +
+    '          </div>' +
+    '          <div class="field">' +
+    '            <label class="flex gap-sm small" style="margin:0">' +
+    '              <input type="checkbox" id="sGeoRequired"' + (c.officeRequired ? ' checked' : '') + '> ' +
+    '              Require camera check-in to be inside the office area</label>' +
+    '            <div class="hint">Leave this off and location is recorded for reference only. ' +
+    '              Use <button type="button" class="btn btn-soft btn-sm" id="useGeo" style="vertical-align:middle">Use my current location</button> ' +
+    '              to fill the coordinates above.</div>' +
+    '          </div>' +
+
+    '          <button class="btn btn-primary" type="submit">Save settings</button>' +
+    '        </form>' +
+    '      </div>' +
+    '    </div>' +
+    '  </div>' +
+
+    '  <div class="grow" style="flex:1 1 300px">' +
+    '    <div class="card mb-3">' +
+    '      <div class="card-hd">How the rules apply</div>' +
+    '      <div class="card-bd small muted">' +
+    '        <p><b class="ink">Late</b> — check-in after start + grace minutes.</p>' +
+    '        <p><b class="ink">Half day</b> — worked under 5 hours (out − in).</p>' +
+    '        <p><b class="ink">Absent</b> — no record on a working day.</p>' +
+    '        <p><b class="ink">Leave</b> — from ≤ to, working days only, no overlap, within quota.</p>' +
+    '        <p><b class="ink">Payslip</b> — salary ÷ working days in the month; deduction = per-day × (absent + 0.5 × half days).</p>' +
+    '        <p class="mb-0">Changing these settings does not rewrite existing records.</p>' +
+    '      </div>' +
+    '    </div>' +
+
+    '    <div class="card">' +
+    '      <div class="card-hd">Change your password</div>' +
+    '      <div class="card-bd">' +
+    '        <div class="alert alert-error" id="pwAlert"></div>' +
+    '        <div class="alert alert-ok" id="pwOk"></div>' +
+    '        <form id="pwForm" novalidate>' +
+    '          <div class="field"><label class="lbl" for="pCur">Current password <span class="req">*</span></label>' +
+    '            <input class="input" type="password" id="pCur" autocomplete="current-password"><div class="err"></div></div>' +
+    '          <div class="field"><label class="lbl" for="pNew">New password <span class="req">*</span></label>' +
+    '            <input class="input" type="password" id="pNew" autocomplete="new-password"><div class="err"></div></div>' +
+    '          <div class="field"><label class="lbl" for="pCon">Confirm new password <span class="req">*</span></label>' +
+    '            <input class="input" type="password" id="pCon" autocomplete="new-password"><div class="err"></div></div>' +
+    '          <button class="btn btn-outline" type="submit">Update password</button>' +
+    '        </form>' +
+    '      </div>' +
+    '    </div>' +
+    '  </div>' +
+    '</div>';
+
+  /* ---------- Company settings ---------- */
+  document.getElementById('coForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    UI.clearErrors(this);
+    UI.alertHide(document.getElementById('coAlert'));
+
+    const name = document.getElementById('sName').value.trim();
+    const start = document.getElementById('sStart').value;
+    const grace = document.getElementById('sGrace').value;
+    const quota = document.getElementById('sQuota').value;
+    const days = Array.from(document.querySelectorAll('.wd:checked')).map(x => Number(x.value));
+    const latRaw = document.getElementById('sLat').value.trim();
+    const lngRaw = document.getElementById('sLng').value.trim();
+    const radiusRaw = document.getElementById('sRadius').value;
+    const geoRequired = document.getElementById('sGeoRequired').checked;
+
+    let ok = true;
+    if (!name) { UI.setError('sName', 'Company name is required.'); ok = false; }
+    if (!start) { UI.setError('sStart', 'Office start time is required.'); ok = false; }
+    if (grace === '' || Number(grace) < 0 || Number(grace) > 120) { UI.setError('sGrace', 'Enter 0–120 minutes.'); ok = false; }
+    if (quota === '' || Number(quota) < 0 || Number(quota) > 60) { UI.setError('sQuota', 'Enter 0–60 days.'); ok = false; }
+    if (!days.length) { document.getElementById('wdErr').style.display = 'block'; ok = false; }
+    else { document.getElementById('wdErr').style.display = 'none'; }
+
+    let officeLat = '', officeLng = '', officeRadius = 100;
+    if (latRaw || lngRaw) {
+      const la = Number(latRaw), lo = Number(lngRaw);
+      if (!latRaw) { UI.setError('sLat', 'Both coordinates are needed.'); ok = false; }
+      else if (isNaN(la) || la < -90 || la > 90) { UI.setError('sLat', 'Latitude must be between -90 and 90.'); ok = false; }
+      if (!lngRaw) { UI.setError('sLng', 'Both coordinates are needed.'); ok = false; }
+      else if (isNaN(lo) || lo < -180 || lo > 180) { UI.setError('sLng', 'Longitude must be between -180 and 180.'); ok = false; }
+      if (radiusRaw === '' || Number(radiusRaw) < 10 || Number(radiusRaw) > 5000) { UI.setError('sRadius', 'Enter 10–5000 metres.'); ok = false; }
+      if (ok) { officeLat = la; officeLng = lo; officeRadius = Number(radiusRaw); }
+    } else if (geoRequired) {
+      UI.setError('sLat', 'Add the office coordinates before requiring the office area.'); ok = false;
+    }
+    if (!ok) return;
+
+    const next = Object.assign({}, c, {
+      name: name,
+      startTime: start,
+      graceMinutes: Number(grace),
+      leaveQuota: Number(quota),
+      workingDays: days.sort((a, b) => a - b),
+      currency: document.getElementById('sCurrency').value,
+      officeLat: officeLat,
+      officeLng: officeLng,
+      officeRadius: officeRadius,
+      officeRequired: officeLat !== '' && geoRequired
+    });
+
+    if (!setCompany(next)) { UI.alertBox(document.getElementById('coAlert'), 'Could not save these settings to the browser.'); return; }
+    UI.toast('Settings saved');
+    setTimeout(() => location.reload(), 500);
+  });
+
+  /* ---------- Change password ---------- */
+  document.getElementById('pwForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    UI.clearErrors(this);
+    UI.alertHide(document.getElementById('pwOk'));
+    UI.alertHide(document.getElementById('pwAlert'));
+
+    const res = Auth.changePassword(
+      user.id,
+      document.getElementById('pCur').value,
+      document.getElementById('pNew').value,
+      document.getElementById('pCon').value
+    );
+
+    if (!res.ok) { UI.alertBox(document.getElementById('pwAlert'), res.error); return; }
+
+    this.reset();
+    UI.alertBox(document.getElementById('pwOk'), 'Password updated.', 'ok');
+  });
+
+  /* ---------- Fill the office coordinates from the browser ---------- */
+  document.getElementById('useGeo').addEventListener('click', function () {
+    const btn = this;
+    if (!navigator.geolocation) { UI.toast('This browser has no location support.', 'bad'); return; }
+    btn.disabled = true;
+    navigator.geolocation.getCurrentPosition(pos => {
+      document.getElementById('sLat').value = pos.coords.latitude.toFixed(6);
+      document.getElementById('sLng').value = pos.coords.longitude.toFixed(6);
+      btn.disabled = false;
+      UI.toast('Coordinates filled in from your current location');
+    }, () => {
+      btn.disabled = false;
+      UI.toast('Location permission was denied.', 'bad');
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+  });
+})();
+</script>
+</body>
+</html>
