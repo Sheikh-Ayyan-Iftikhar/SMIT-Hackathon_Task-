@@ -13,6 +13,7 @@
 <div class="shell" id="shell"></div>
 
 <script src="../js/storage.js"></script>
+<script src="../js/ai.js"></script>
 <script src="../js/ui.js"></script>
 <script src="../js/auth.js"></script>
 <script src="../js/employees.js"></script>
@@ -134,6 +135,33 @@
     '      </div>' +
     '    </div>' +
 
+    '    <div class="card mb-3">' +
+    '      <div class="card-hd">AI assistant <span class="badge badge-mute" id="aiBadge">off</span></div>' +
+    '      <div class="card-bd">' +
+    '        <div class="alert alert-ok" id="aiOk"></div>' +
+    '        <div class="alert alert-error" id="aiAlert"></div>' +
+    '        <div class="field">' +
+    '          <label class="lbl" for="aiKey">OpenRouter API key</label>' +
+    '          <input class="input" type="password" id="aiKey" autocomplete="off" spellcheck="false" placeholder="sk-or-v1-…">' +
+    '          <div class="err"></div>' +
+    '          <div class="hint">Saved in <b>this browser only</b> (<code>hcm_ai_key</code>). The key is never written into the ' +
+    '            source code, the repository or the server, so nobody else can read it.</div>' +
+    '        </div>' +
+    '        <div class="field">' +
+    '          <label class="lbl" for="aiModel">Model</label>' +
+    '          <input class="input" id="aiModel" autocomplete="off" spellcheck="false" value="' + UI.esc(AI.model()) + '">' +
+    '          <div class="err"></div>' +
+    '          <div class="hint">Any OpenRouter model slug, e.g. <code>openrouter/free</code>.</div>' +
+    '        </div>' +
+    '        <div class="flex gap-sm wrap">' +
+    '          <button class="btn btn-primary" type="button" id="aiSave">Save</button>' +
+    '          <button class="btn btn-outline" type="button" id="aiRemove">Remove key</button>' +
+    '          <button class="btn btn-soft" type="button" id="aiTest">Test</button>' +
+    '        </div>' +
+    '        <div class="hint mt-2 mb-0" id="aiStatus"></div>' +
+    '      </div>' +
+    '    </div>' +
+
     '    <div class="card">' +
     '      <div class="card-hd">Change your password</div>' +
     '      <div class="card-bd">' +
@@ -227,6 +255,66 @@
 
     this.reset();
     UI.alertBox(document.getElementById('pwOk'), 'Password updated.', 'ok');
+  });
+
+  /* ---------- AI assistant (key stays in this browser) ---------- */
+  function aiStatus() {
+    const on = AI.enabled();
+    const badge = document.getElementById('aiBadge');
+    badge.textContent = on ? 'on' : 'off';
+    badge.className = 'badge ' + (on ? 'badge-ok' : 'badge-mute');
+    document.getElementById('aiStatus').innerHTML = on
+      ? 'Ready. The helper sends the model only the viewer\'s role-scoped records — an employee\'s request never includes company-wide data.'
+      : 'Off. The smart helper answers from localStorage only.';
+  }
+  aiStatus();
+
+  document.getElementById('aiSave').addEventListener('click', function () {
+    UI.alertHide(document.getElementById('aiOk'));
+    UI.alertHide(document.getElementById('aiAlert'));
+    const key = document.getElementById('aiKey').value.trim();
+    const model = document.getElementById('aiModel').value.trim();
+    if (key && !/^sk-or-/.test(key)) {
+      UI.alertBox(document.getElementById('aiAlert'), 'That does not look like an OpenRouter key — it should start with sk-or-.');
+      return;
+    }
+    if (key && key.length < 20) {
+      UI.alertBox(document.getElementById('aiAlert'), 'The key looks too short to be valid.');
+      return;
+    }
+    if (key) AI.setKey(key);
+    AI.setModel(model);
+    document.getElementById('aiKey').value = '';
+    aiStatus();
+    UI.toast(key ? 'Key saved in this browser' : 'Model saved');
+  });
+
+  document.getElementById('aiRemove').addEventListener('click', function () {
+    AI.clearKey();
+    document.getElementById('aiKey').value = '';
+    UI.alertHide(document.getElementById('aiOk'));
+    UI.alertHide(document.getElementById('aiAlert'));
+    aiStatus();
+    UI.toast('Key removed from this browser');
+  });
+
+  document.getElementById('aiTest').addEventListener('click', function () {
+    UI.alertHide(document.getElementById('aiOk'));
+    UI.alertHide(document.getElementById('aiAlert'));
+    const box = document.getElementById('aiAlert');
+    if (!AI.enabled()) { UI.alertBox(box, 'Save an API key first.'); return; }
+    const btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Testing…';
+    AI.ask('How many employees do we have?', user).then(function (r) {
+      btn.disabled = false;
+      btn.textContent = 'Test';
+      if (r.ok) UI.alertBox(document.getElementById('aiOk'), 'It works — “' + r.text.replace(/<[^>]+>/g, '') + '”', 'ok');
+      else {
+        const why = { 'bad-key': 'the key was rejected (HTTP 401).', http: 'the provider returned an error.', timeout: 'the request timed out.', network: 'the request failed — check the connection.', empty: 'the model returned an empty reply.' };
+        UI.alertBox(box, 'Test failed: ' + (why[r.code] || 'unknown error.'));
+      }
+    });
   });
 
   /* ---------- Fill the office coordinates from the browser ---------- */

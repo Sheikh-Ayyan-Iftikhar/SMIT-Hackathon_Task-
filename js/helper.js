@@ -165,15 +165,46 @@ const Helper = {
     }
   },
 
+  /* AI is on when an API key is stored in this browser. Without one
+     (or whenever the request fails) the local answer above is used,
+     so the helper always replies with real data. */
+  mode() {
+    return (typeof AI !== 'undefined' && AI.enabled()) ? 'ai' : 'local';
+  },
+
+  answerAsync(question, user) {
+    const local = Helper.answer(question, user);
+    if (Helper.mode() === 'local') return Promise.resolve(Object.assign({}, local, { via: 'local' }));
+
+    const why = {
+      'bad-key': 'the API key was rejected',
+      http: 'the AI provider returned an error',
+      timeout: 'the request timed out',
+      network: 'there is no network connection',
+      empty: 'the model returned an empty reply',
+      off: 'no API key is saved'
+    };
+    return AI.ask(question, user).then(r => {
+      if (r && r.ok) return { text: r.text, src: r.src, via: 'ai' };
+      return Object.assign({}, local, {
+        via: 'local',
+        note: why[(r || {}).code] || 'the assistant is unavailable'
+      });
+    }).catch(() => Object.assign({}, local, { via: 'local', note: 'the request failed' }));
+  },
+
   /* ---------- Renders the chat box into an element ---------- */
   mount(el, user) {
     const chips = user.role === 'admin'
       ? ['How many employees do we have?', 'Who is on leave today?', 'Who was late today?', 'How many leaves are pending?']
       : ['How many leaves do I have left?', 'Was I late today?', 'How many hours did I work this week?', 'My attendance'];
 
+    const onAi = Helper.mode() === 'ai';
     el.innerHTML =
       '<div class="card">' +
-      '  <div class="card-hd"><span>Smart helper</span><span class="badge badge-mute">' + (user.role === 'admin' ? 'all data' : 'own data') + '</span></div>' +
+      '  <div class="card-hd"><span>Smart helper</span><span class="flex gap-sm">' +
+      '    <span class="badge ' + (onAi ? 'badge-ok' : 'badge-mute') + '">' + (onAi ? 'AI on' : 'local data') + '</span>' +
+      '    <span class="badge badge-mute">' + (user.role === 'admin' ? 'all data' : 'own data') + '</span></span></div>' +
       '  <div class="chat">' +
       '    <div class="chat-log" id="helperLog" role="log" aria-live="polite"></div>' +
       '    <div class="chips">' + chips.map(c => '<button type="button" class="chip" data-q="' + UI.esc(c) + '">' + UI.esc(c) + '</button>').join('') + '</div>' +
@@ -196,8 +227,18 @@ const Helper = {
       log.scrollTop = log.scrollHeight;
     }
 
+    function typing() {
+      const m = document.createElement('div');
+      m.className = 'msg bot typing';
+      m.innerHTML = '<div class="bub muted">Thinking…</div>';
+      log.appendChild(m);
+      log.scrollTop = log.scrollHeight;
+      return m;
+    }
+
     push('bot', 'Hi ' + UI.esc(user.name.split(' ')[0]) + '. Ask me anything about ' +
-      (user.role === 'admin' ? 'your company records' : 'your attendance and leave') + '.', 'localStorage');
+      (user.role === 'admin' ? 'your company records' : 'your attendance and leave') + '.',
+      onAi ? 'openrouter · ' + (typeof AI !== 'undefined' ? AI.model() : '') : 'localStorage');
 
     document.getElementById('helperForm').addEventListener('submit', function (e) {
       e.preventDefault();
@@ -205,10 +246,17 @@ const Helper = {
       if (!q) return;
       push('me', UI.esc(q));
       input.value = '';
-      setTimeout(function () {
-        const res = Helper.answer(q, user);
+      const wait = typing();
+      Helper.answerAsync(q, user).then(function (res) {
+        if (wait.parentNode) wait.parentNode.removeChild(wait);
         push('bot', res.text, res.src);
-      }, 160);
+        if (res.via === 'local' && res.note) {
+          push('bot', '<span class="muted">Switched to local answers — ' + UI.esc(res.note) + '.</span>', 'fallback');
+        }
+      }, function () {
+        if (wait.parentNode) wait.parentNode.removeChild(wait);
+        push('bot', 'The information could not be retrieved, so no answer was generated.', 'error');
+      });
     });
 
     el.querySelectorAll('.chip').forEach(c => c.addEventListener('click', function () {

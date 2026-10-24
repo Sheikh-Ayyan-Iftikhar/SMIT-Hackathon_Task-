@@ -109,10 +109,15 @@
 </div>
 
 <script src="js/storage.js"></script>
+<script src="js/ai.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/auth.js"></script>
 <script>
 (function () {
+  /* A key handed over as  #ai=<key>  is captured into localStorage
+     before any redirect throws the hash away. */
+  if (AI.captureHash()) UI.toast('API key saved in this browser');
+
   const setupForm = document.getElementById('setupForm');
   const loginForm = document.getElementById('loginForm');
   const setupHint = document.getElementById('setupHint');

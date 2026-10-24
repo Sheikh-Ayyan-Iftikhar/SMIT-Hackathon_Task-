@@ -143,6 +143,7 @@ const UI = {
   shell(opts) {
     const user = currentUser();
     const company = getCompany();
+    const aiKeySaved = (typeof AI !== 'undefined' && AI.captureHash) ? AI.captureHash() : false;
 
     const links = opts.nav.map(n =>
       '<a class="lk' + (n.href === opts.active ? ' on' : '') + '" href="' + n.href + '"' +
@@ -192,6 +193,8 @@ const UI = {
     burger.onclick = toggle;
     scrim.onclick = toggle;
     document.getElementById('signOut').onclick = () => { Auth.logout(); };
+
+    if (aiKeySaved) UI.toast('API key saved in this browser');
 
     return document.getElementById('page');
   }

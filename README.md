@@ -42,6 +42,7 @@ js/employees.js        add/edit/delete employee, search & filter
 js/attendance.js       check-in/out and the late / half-day rules
 js/leave.js            leave validation, quota, approve/reject
 js/helper.js           the smart helper chat box
+js/ai.js               optional live assistant (OpenRouter), key kept in the browser only
 js/camera.js           bonus: camera check-in (getUserMedia + geolocation + face-api.js)
 js/ui.js               escaping, toasts, modal, responsive shell
 pages/*.html           the seven app pages
@@ -105,6 +106,8 @@ Every protected page checks the session and the role on load. An Employee who op
 | `hcm_leaves` | Requests: employee id, type, from, to, days, reason, status, comment |
 | `hcm_session` | Who is logged in right now |
 | `hcm_announcements` | Announcements posted by the Admin |
+| `hcm_ai_key` | Optional OpenRouter API key — **this browser only**, never written into the source tree |
+| `hcm_ai_model` | Optional model slug for the assistant (default `openrouter/free`) |
 
 Data is per-browser. Use **Reset app** on the sign-in page to return to the empty first-run state.
 
@@ -145,11 +148,35 @@ Notes:
 
 ## Smart helper
 
-A chat box on both dashboards that answers from the app's own data with keyword matching (`text.includes("leave")` style). Employees only ever receive their own records; company-wide questions are refused.
+A chat box on both dashboards with two layers.
+
+**Local answers (always on).** Keyword matching against the app's own data — no network, no cost, no invented numbers. Employees only ever receive their own records; company-wide questions are refused.
+
+**Live AI (optional).** When an API key is saved, the question goes to [OpenRouter](https://openrouter.ai) together with a JSON block of **role-scoped facts** built from `localStorage`: an Admin request carries headcount, today's attendance, pending leaves and salaries; an employee request carries only their own attendance, leave and balance (the company-wide fields are not even sent). The model is told to answer only from that JSON, so it can only repeat numbers that really exist.
+
+```js
+// js/ai.js — what leaves the browser
+{ model: 'openrouter/free',
+  messages: [
+    { role: 'system', content: 'Answer ONLY from the JSON data below…\n\nDATA:' + JSON.stringify(facts) },
+    { role: 'user',   content: question } ],
+  max_tokens: 500, temperature: 0.2 }
+```
+
+### Turning it on
+
+The key is **never** written into the source — the repository and the GitHub Pages site are public, so a committed key would be readable by anyone. Supply it in either way, and it is stored only in that browser under `hcm_ai_key`:
+
+1. open the site once with `index.html#ai=<your key>` (the key moves into `localStorage` and the hash is scrubbed from the address bar), or
+2. paste it into **Settings → AI assistant** and press **Save** (there is a **Test** button there too).
+
+**Remove key** deletes it again. Every browser keeps its own key, so a visitor without one simply gets the local answers.
+
+### When something goes wrong
+
+The local answer is always computed first, so a rejected key, a blocked network or a timeout degrades instead of failing: the helper replies with the local answer and adds *"Switched to local answers — …"*. Model output is HTML-escaped before it touches the DOM; only `<b>`, `<i>` and `<br>` are let back through.
 
 Examples: *"How many employees do we have?"*, *"Who is on leave today?"*, *"Who was late today?"* (Admin) · *"Was I late today?"*, *"How many hours did I work this week?"*, *"How many leaves do I have left?"* (Employee).
-
-The helper never invents a number — if there is no data it says so.
 
 ---
 
@@ -163,9 +190,12 @@ The helper never invents a number — if there is no data it says so.
 
 ## Verification
 
-- **62 logic assertions** (Node, the 8 `js/*.` modules loaded together) covering setup/login, employee validation and filters, the late / half-day / absent rules, leave rules and quota, payslip maths, helper scoping, the camera geofence, the camera button gates and the storage-quota fallback — all passing.
-- Every `.js` file and every inline `<script>` parses (`vm.Script`), 15 scripts, 0 failures.
+- **166 logic assertions** (Node, the 9 `js/*.` modules loaded together), 0 failures:
+  - **77 sync** — setup/login, employee validation and filters, the late / half-day / absent rules, leave rules and quota, payslip maths, helper scoping, the camera geofence, the camera button gates, the storage-quota fallback, unique ids, and the AI layer (key on/off, `#ai=` capture, model default, role-scoped facts, output escaping).
+  - **89 async** — a stubbed OpenRouter transport: local fallback with no key, bearer header and `X-Title`, admin payload carries company data while the employee payload does not and never contains the key, model HTML is sanitised, HTTP 401 and network failures fall back to the local answer.
+- Every `.js` file and every inline `<script>` parses (`vm.Script`), **16 scripts, 0 failures**.
 - Headless Edge smoke tests: all seven pages render, role guards bounce an Employee off admin pages, the camera dialog opens with a live preview (`cam=ok/live`), geolocation resolves (`geo=ok/…`), and `face-api.js` loads its weights from the CDN and detects a real face (`score=0.740`).
+- **22 browser checks** for the assistant over real HTTP in headless Edge: the key arrives through `#ai=` and is scrubbed from the URL, the key input stays empty and the key never appears in the DOM, the badge flips `local data` → `AI on`, a live OpenRouter call answers inside the chat (`source: openrouter · nvidia/nemotron-3.5-super-vl:free`), and the employee session gets the same key while its payload stays role-scoped.
 
 ---
 
@@ -180,4 +210,5 @@ Push the folder to GitHub Pages, Netlify or Vercel — it is a static site, so t
 - `localStorage` is per-browser, so records are not shared between devices or users. A real deployment would use a server and a database.
 - Passwords are stored in plain text inside `localStorage` because this is a browser-only learning app. Do not reuse a real password.
 - The camera face check needs an internet connection the first time (the model comes from a CDN) and needs a device with a camera; when either is missing the dialog reports it and the plain check-in button remains.
-- Not included: Chart.js dashboard charts, CSV export, a live LLM API for the helper.
+- The AI assistant costs tokens on the key owner's OpenRouter account, only works while that browser has a key, and answers are only as good as the model routed by `openrouter/free` — the local keyword layer stays the fallback.
+- Not included: Chart.js dashboard charts, CSV export.
