@@ -88,6 +88,7 @@ const AI = {
         viewer: { name: user ? user.name : '', department: user ? user.department : '' },
         leaveBalance: bal,
         todayAttendance: rec ? { checkIn: rec.checkIn, checkOut: rec.checkOut || null, status: rec.status, late: !!rec.late } : null,
+        todayNote: rec ? '' : 'No attendance record exists for today yet — the employee has not checked in.',
         myAttendance: mine.map(a => ({ date: a.date, in: a.checkIn, out: a.checkOut || null, status: a.status, late: !!a.late })),
         myLeaves: myLeaves.map(l => ({ type: l.type, from: l.from, to: l.to, days: l.days, status: l.status })),
         companyTotals: 'withheld — not sent for employees'
@@ -100,13 +101,17 @@ const AI = {
     const leaveAll = getLeaves();
     const leaveTotals = { pending: 0, approved: 0, rejected: 0 };
     leaveAll.forEach(l => { if (leaveTotals[l.status] !== undefined) leaveTotals[l.status]++; });
+    const monthStart = todayISO(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+    const joinedThisMonth = all.filter(u => String(u.createdAt || '').slice(0, 10) >= monthStart).map(u => u.name);
 
     return Object.assign(base, {
       scope: 'ADMIN — full company data is allowed.',
       headcount: all.length,
       departments: Employees.departments(),
+      joinedThisMonth: joinedThisMonth,
       employees: all.slice(0, 60).map(u => ({
-        name: u.name, department: u.department || null, salary: Number(u.salary || 0)
+        name: u.name, department: u.department || null, salary: Number(u.salary || 0),
+        joinedOn: String(u.createdAt || '').slice(0, 10)
       })),
       todayAttendance: {
         present: sum.present, late: sum.late, halfDay: sum.halfDay,
@@ -139,11 +144,16 @@ const AI = {
       .replace(/&lt;(br)\s*\/&gt;/gi, '<br>');
   },
 
-  /* ---------- the request ---------- */
+  /* ---------- the request ----------
+     A free model occasionally answers with nothing; one silent retry
+     before the helper falls back to its local answers. */
   ask(question, user) {
-    const key = AI.key();
     if (!AI.enabled()) return Promise.resolve({ ok: false, code: 'off' });
+    return AI._request(question, user, true);
+  },
 
+  _request(question, user, retry) {
+    const key = AI.key();
     const facts = AI.facts(user);
     const system =
       'You are the built-in assistant of LetMeHire, a small HR web app. ' +
@@ -194,7 +204,10 @@ const AI = {
       return res.json().then(data => {
         const choice = data && data.choices && data.choices[0];
         const text = choice && choice.message && choice.message.content;
-        if (!text || !String(text).trim()) return { ok: false, code: 'empty' };
+        if (!text || !String(text).trim()) {
+          if (retry) return AI._request(question, user, false);
+          return { ok: false, code: 'empty' };
+        }
         return {
           ok: true,
           text: AI.escHtml(String(text).trim()),

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='16'%20fill='%230e8c74'/%3E%3Ctext%20x='32'%20y='46'%20font-size='38'%20font-family='Arial'%20font-weight='700'%20fill='white'%20text-anchor='middle'%3EL%3C/text%3E%3C/svg%3E">
 <title>Settings · LetMeHire</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -84,7 +84,7 @@
     '            <label class="lbl">Working days <span class="req">*</span></label>' +
     '            <div class="flex wrap" style="gap:.6rem">' +
                       DAY_NAMES.map((d, i) =>
-                        '<label class="flex gap-sm small" style="margin:0">' +
+                        '<label class="flex gap-sm small wd-lbl" style="margin:0">' +
                         '<input type="checkbox" class="wd" value="' + i + '"' + (c.workingDays.indexOf(i) !== -1 ? ' checked' : '') + '> ' + d +
                         '</label>').join('') +
     '            </div>' +
@@ -108,7 +108,7 @@
     '              <div class="err"></div></div></div>' +
     '          </div>' +
     '          <div class="field">' +
-    '            <label class="flex gap-sm small" style="margin:0">' +
+    '            <label class="flex gap-sm small chk-lbl" style="margin:0">' +
     '              <input type="checkbox" id="sGeoRequired"' + (c.officeRequired ? ' checked' : '') + '> ' +
     '              Require camera check-in to be inside the office area</label>' +
     '            <div class="hint">Leave this off and location is recorded for reference only. ' +

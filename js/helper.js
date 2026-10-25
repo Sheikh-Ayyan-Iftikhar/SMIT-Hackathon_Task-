@@ -175,6 +175,7 @@ const Helper = {
   answerAsync(question, user) {
     const local = Helper.answer(question, user);
     if (Helper.mode() === 'local') return Promise.resolve(Object.assign({}, local, { via: 'local' }));
+    if (!String(question || '').trim()) return Promise.resolve(Object.assign({}, local, { via: 'local' }));
 
     const why = {
       'bad-key': 'the API key was rejected',
