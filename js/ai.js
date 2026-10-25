@@ -109,6 +109,7 @@ const AI = {
       headcount: all.length,
       departments: Employees.departments(),
       joinedThisMonth: joinedThisMonth,
+      myLeaveBalance: user ? Leave.balance(Number(user.id)) : null,
       employees: all.slice(0, 60).map(u => ({
         name: u.name, department: u.department || null, salary: Number(u.salary || 0),
         joinedOn: String(u.createdAt || '').slice(0, 10)
@@ -144,9 +145,21 @@ const AI = {
       .replace(/&lt;(br)\s*\/&gt;/gi, '<br>');
   },
 
+  /* Free models sometimes answer with a moderation string instead of
+     an answer ("User Safety: safe"). That is useless to the user, so
+     it is treated exactly like an empty reply: retry, then give up. */
+  isJunk(text) {
+    const s = String(text == null ? '' : text).trim();
+    if (!s) return true;
+    if (/^user\s*safety\b/i.test(s)) return true;
+    if (/\bsafety categories\b/i.test(s)) return true;
+    if (/^(safe|unsafe|flagged|blocked|refused)[.!]?$/i.test(s)) return true;
+    return false;
+  },
+
   /* ---------- the request ----------
-     A free model occasionally answers with nothing; one silent retry
-     before the helper falls back to its local answers. */
+     A free model occasionally answers with nothing or with a safety
+     stub; one silent retry before the helper falls back locally. */
   ask(question, user) {
     if (!AI.enabled()) return Promise.resolve({ ok: false, code: 'off' });
     return AI._request(question, user, true);
@@ -204,9 +217,9 @@ const AI = {
       return res.json().then(data => {
         const choice = data && data.choices && data.choices[0];
         const text = choice && choice.message && choice.message.content;
-        if (!text || !String(text).trim()) {
+        if (AI.isJunk(text)) {
           if (retry) return AI._request(question, user, false);
-          return { ok: false, code: 'empty' };
+          return { ok: false, code: String(text || '').trim() ? 'junk' : 'empty' };
         }
         return {
           ok: true,

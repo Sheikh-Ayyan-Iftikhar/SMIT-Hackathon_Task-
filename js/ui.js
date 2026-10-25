@@ -138,12 +138,37 @@ const UI = {
     return '<span class="badge ' + cls + '">' + UI.esc(String(status || '').replace('-', ' ')) + '</span>';
   },
 
+  /* ---------- Theme (dark / light) ---------- */
+  theme() {
+    try { return localStorage.getItem('hcm_theme') === 'dark' ? 'dark' : 'light'; }
+    catch (e) { return 'light'; }
+  },
+
+  setTheme(t) {
+    const v = t === 'dark' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', v);
+    try { localStorage.setItem('hcm_theme', v); } catch (e) {}
+    return v;
+  },
+
+  themeIcon(t) {
+    return (t || UI.theme()) === 'dark' ? '&#9788;' : '&#9789;';
+  },
+
+  toggleTheme() {
+    const next = UI.setTheme(UI.theme() === 'dark' ? 'light' : 'dark');
+    UI.toast(next === 'dark' ? 'Dark mode on' : 'Light mode on');
+    if (typeof Charts !== 'undefined' && Charts && Charts.refresh) Charts.refresh();
+    return next;
+  },
+
   /* ---------- App shell ----------
      opts = { active, title, subtitle, nav: [{ href, label, icon }] } */
   shell(opts) {
     const user = currentUser();
     const company = getCompany();
     const aiKeySaved = (typeof AI !== 'undefined' && AI.captureHash) ? AI.captureHash() : false;
+    const themeNow = UI.theme();
 
     const links = opts.nav.map(n =>
       '<a class="lk' + (n.href === opts.active ? ' on' : '') + '" href="' + n.href + '"' +
@@ -177,7 +202,11 @@ const UI = {
       '      <div><h1 class="ttl">' + UI.esc(opts.title) + '</h1>' +
       (opts.subtitle ? '<div class="sub">' + UI.esc(opts.subtitle) + '</div>' : '') + '</div>' +
       '    </div>' +
-      '    <div class="datechip small nowrap">' + UI.esc(new Date().toLocaleDateString(undefined, { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })) + '</div>' +
+      '    <div class="flex nowrap" style="gap:.5rem">' +
+      '      <button class="btn btn-outline btn-sm" id="themeBtn" type="button" aria-label="Toggle dark mode" aria-pressed="' +
+      (themeNow === 'dark') + '" title="Toggle dark mode">' + UI.themeIcon(themeNow) + '</button>' +
+      '      <div class="datechip small nowrap">' + UI.esc(new Date().toLocaleDateString(undefined, { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })) + '</div>' +
+      '    </div>' +
       '  </header>' +
       '  <main class="page" id="page"></main>' +
       '</div>';
@@ -193,6 +222,13 @@ const UI = {
     burger.onclick = toggle;
     scrim.onclick = toggle;
     document.getElementById('signOut').onclick = () => { Auth.logout(); };
+
+    const themeBtn = document.getElementById('themeBtn');
+    themeBtn.onclick = () => {
+      const t = UI.toggleTheme();
+      themeBtn.innerHTML = UI.themeIcon(t);
+      themeBtn.setAttribute('aria-pressed', String(t === 'dark'));
+    };
 
     if (aiKeySaved) UI.toast('API key saved in this browser');
 

@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script>try{var t=localStorage.getItem('hcm_theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='16'%20fill='%230e8c74'/%3E%3Ctext%20x='32'%20y='46'%20font-size='38'%20font-family='Arial'%20font-weight='700'%20fill='white'%20text-anchor='middle'%3EL%3C/text%3E%3C/svg%3E">
 <title>Admin dashboard · LetMeHire</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -19,6 +20,10 @@
 <script src="../js/employees.js"></script>
 <script src="../js/attendance.js"></script>
 <script src="../js/leave.js"></script>
+<script src="../js/export.js"></script>
+<script src="../js/report.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="../js/charts.js"></script>
 <script src="../js/helper.js"></script>
 <script>
 (function () {
@@ -117,6 +122,38 @@
       stat('info', '&#9998;', pending.length, 'Pending leaves') +
     '</div>' +
 
+    '<div class="card mb-3">' +
+    '  <div class="card-hd"><span>Attendance insights</span>' +
+    '    <span class="smaller muted">today by department · last 14 days</span></div>' +
+    '  <div class="card-bd">' +
+    '    <div id="chartNote"></div>' +
+    '    <div class="grid-2">' +
+    '      <div><div class="small bold mb-1">Attendance by department</div>' +
+    '        <div class="chart-box"><canvas id="chDept" aria-label="Attendance by department" role="img"></canvas></div></div>' +
+    '      <div><div class="small bold mb-1">Last 14 days</div>' +
+    '        <div class="chart-box"><canvas id="chTrend" aria-label="Attendance trend" role="img"></canvas></div></div>' +
+    '    </div>' +
+    '  </div>' +
+    '</div>' +
+
+    '<div class="card mb-3">' +
+    '  <div class="card-hd"><span>Monthly report</span><span class="smaller muted">print, save as PDF or export CSV</span></div>' +
+    '  <div class="card-bd">' +
+    '    <div class="row mb-2">' +
+    '      <div style="flex:0 1 230px"><label class="lbl" for="repMonth">Month</label>' +
+    '        <select class="select" id="repMonth">' + Report.monthOptions() + '</select></div>' +
+    '      <div class="grow" style="flex:1 1 340px"><label class="lbl">Actions</label>' +
+    '        <div class="flex wrap" style="gap:.5rem">' +
+    '          <button class="btn btn-primary btn-sm" type="button" id="repPrint">Print / save as PDF</button>' +
+    '          <button class="btn btn-outline btn-sm" type="button" id="repPreview">Preview report</button>' +
+    '          <button class="btn btn-outline btn-sm" type="button" id="repCsv">Attendance CSV</button>' +
+    '          <button class="btn btn-outline btn-sm" type="button" id="empCsv">Employee list CSV</button>' +
+    '        </div></div>' +
+    '    </div>' +
+    '    <div id="repOut" class="d-none"></div>' +
+    '  </div>' +
+    '</div>' +
+
     '<div class="row mb-3">' +
       '  <div class="grow" style="flex:2 1 460px">' +
       '    <div class="card">' +
@@ -173,6 +210,38 @@
     document.getElementById('annList').innerHTML = announcementList();
     UI.toast('Announcement posted');
   });
+
+  /* ---- monthly report: preview, print, CSV downloads ---- */
+  const repMonth = document.getElementById('repMonth');
+  const repOut = document.getElementById('repOut');
+
+  document.getElementById('repPreview').addEventListener('click', function () {
+    if (repOut.classList.contains('d-none')) {
+      repOut.innerHTML = '<div class="card mt-1"><div class="card-bd">' + Report.build(repMonth.value) + '</div></div>';
+      repOut.classList.remove('d-none');
+      this.textContent = 'Hide preview';
+    } else {
+      repOut.classList.add('d-none');
+      repOut.innerHTML = '';
+      this.textContent = 'Preview report';
+    }
+  });
+
+  document.getElementById('repPrint').addEventListener('click', () => Report.print(repMonth.value));
+
+  document.getElementById('repCsv').addEventListener('click', () => {
+    if (Export.attendanceFile(repMonth.value)) UI.toast('Attendance CSV downloaded');
+    else UI.toast('Nothing to export for this month', 'bad');
+  });
+
+  document.getElementById('empCsv').addEventListener('click', () => {
+    if (Export.employeesFile()) UI.toast('Employee list CSV downloaded');
+    else UI.toast('No employees yet', 'bad');
+  });
+
+  /* ---- charts (Chart.js from CDN) ---- */
+  if (Charts.render()) document.getElementById('chartNote').innerHTML = '';
+  else Charts.fallbackNote();
 
   /* ---- smart helper ---- */
   Helper.mount(document.getElementById('helperBox'), user);

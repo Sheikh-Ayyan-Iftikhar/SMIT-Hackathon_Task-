@@ -183,6 +183,7 @@ const Helper = {
       timeout: 'the request timed out',
       network: 'there is no network connection',
       empty: 'the model returned an empty reply',
+      junk: 'the model returned a safety stub instead of an answer',
       off: 'no API key is saved'
     };
     return AI.ask(question, user).then(r => {
